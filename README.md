@@ -56,7 +56,9 @@ Program features:
 -	No GUI mode of operation in which the program will work in background silently while only update the log files.
 
 Program is distributed under GPL license and could be found on GitHub:
-https://github.com/med7at69/IEC104-RTU-Simulator
+
+https://github.com/med7at69/IEC104-MultipleMasters2SingleSlave
+
 It is written in python3 language and code is supporting both Windows and Linux OS.
 
 Package contains the following files:
