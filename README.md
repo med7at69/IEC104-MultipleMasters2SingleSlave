@@ -256,3 +256,36 @@ python -m nuitka --windows-file-description="IEC104 Multiple Masters to Single S
 
 
 
+Appendix D - Other projects
+
+
+IEC 104 RTU Simulator
+https://github.com/med7at69/IEC104-RTU-Simulator
+IEC 104 RTU simulator is a program to simulate the operation of RTU (remote terminal unit) or server as defined by protocol IEC 60870-5-104. It can simulate any number of RTUs or servers. Simulated RTUs could be connected to different or same SCADA master station. IO signals are indexed and grouped by using index numbers. You can send IO signals from all RTUs to the connected SCADA master stations at once by using index number.
+Program features:
+-	Simulation of any number of RTUs simultaneously.
+-	Connect to multiple SCADA systems at once.
+-	Can simulate redundant RTU ports. Program will send same IO signal to all RTUs with same RTU number.
+-	Can simulate redundant SCADA system connections.
+-	Easy IO database building by using spreadsheet programs such as MS Excel.
+-	IP address and network filtration for each RTU independently.
+-	Can repeat sending grouped (by index number) of IO signals for any period (in seconds). Also, a delay time in seconds could be applied after sending each IO.
+-	Can send any IO signal based on receiving filter conditions such as specific type ID, IOA, etc.
+-	Accordingly, could be used to simulate any site or factory acceptance tests (SAT/FAT) such as:
+o	End to end (E2E) test.
+o	Avalanche test (sending full IO signal list from all defined RTUs by using index 0).
+o	Worst case (SCADA system emergency case).
+o	Steady state test (normal operation).
+o	SCADA system switchover time.
+o	SCADA system time synchronization.
+o	Load shedding.
+o	FLISR (fault location, isolation, and service restoration).
+o	Self-healing.
+o	Etc.
+-	IEC 104 parameters (timing and k) for each RTU independently.
+-	Linux and windows compatible.
+-	Python native graphical user interface (GUI) (no need for third party solutions).
+-	Multithread operation.
+-	Time synchronization through multiple NTP servers.
+-	Detailed logging of all events and signals in comma delimited file format.
+
