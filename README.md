@@ -1,5 +1,5 @@
 # ******************************************************
-# IEC 104 Multiple Masters to Single Slave (IEC104MM2SS
+# IEC 104 Multiple Masters to Single Slave (IEC104MM2SS)
 #  	     By M. Medhat - 1 Nov 2021 - Ver 1.0
 # ******************************************************
 
