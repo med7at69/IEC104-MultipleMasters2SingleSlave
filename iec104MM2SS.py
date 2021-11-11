@@ -1206,8 +1206,10 @@ if isfile(initfile):
 		#variable=value
 		csv_reader = reader(csv_file, delimiter=',')
 		for row in csv_reader:
+			if not row:
+				pass
 			# if first character of first column in any row = '!' then break
-			if row[0][0:1] == '!' or exitprogram:
+			elif row[0][0:1] == '!' or exitprogram:
 				break
 			# general settings
 			elif row[0] == 'ntp_update_every_sec' and row[1].isdigit():
@@ -1386,8 +1388,10 @@ if isfile(initfile):
 		noofsys=0
 		indexgroup= -1
 		for row in csv_reader:
+			if not row:
+				pass
 			# if first character of first column in any row = '!' then break
-			if row[0][0:1] == '!' or exitprogram:
+			elif row[0][0:1] == '!' or exitprogram:
 				break
 			# Master entries - each row should start with integer, then sys name, portno (not required), rtuno, master(Y/N) and IP:PORT;IP:PORT.
 			elif row[0].isdigit() and row[3].isdigit() and row[4] != "Y" and int(row[3]) in range(1,65535) and row[5]:
