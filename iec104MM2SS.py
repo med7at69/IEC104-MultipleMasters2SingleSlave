@@ -912,7 +912,7 @@ def restartaction(self,ind):
 	elif not int(rtuno) or not int(portno):
 		messagebox.showerror("Error", f'Wrong port {portno} or rtu {rtuno}, must not equal zero.')
 	elif (self.order != 0) and (portno in tmplist):
-		messagebox.showerror("Error", f'Wrong port {portno}, already used for other slaves/RTUs.')
+		messagebox.showerror("Error", f'Wrong port {portno}, already used for other masters.')
 	# confirm from user
 	elif messagebox.askokcancel("Restart sys", f'Do you want to restart "{self.csvindex}" with:\nName: {sysname}\nPort: {portno}\nRTU: {rtuno}\nIP/filter: {filternet}'):
 		# close connection and socket
