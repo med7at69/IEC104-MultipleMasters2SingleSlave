@@ -320,14 +320,14 @@ def incseqno(self,txrx):
 		self.txmsb=0
 		self.rxlsb=0
 		self.rxmsb=0
-	if txrx == 'TX':
+	elif txrx == 'TX':
 		self.txlsb += 1
 		if self.txlsb == 128:
 			self.txlsb=0
 			self.txmsb += 1
 			if self.txmsb == 256:
 				self.txmsb=0
-	if txrx == 'RX':
+	elif txrx == 'RX':
 		self.rxlsb += 1
 		if self.rxlsb == 128:
 			self.rxlsb=0
@@ -410,8 +410,8 @@ def readpacketClient(self):
 			if packet[12:12+2] == '46':
 				pass
 			# forward the packet to mm2ss server
-			# if spi, dpi or ami then forward to all mm2ss servers.
-			if int(packet[12:12+2],16) <= 40:
+			# if spi, dpi or ami or org=0 then forward to all mm2ss clients.
+			if int(packet[12:12+2],16) <= 40 or not int(packet[18:18+2],16):
 				for a in mainth[self.index]:
 					if (a != self) and ((a.packet2server_wrp+1) != a.packet2server_rdp) and a.dataactive:
 						a.packet2server[a.packet2server_wrp+1] = bytearray.fromhex(packet)
@@ -515,18 +515,10 @@ def readmm2ssclientthread(self):
 				self.packet2server_rdp = -1
 			else:
 				self.packet2server_rdp += 1
-			# if org is ours then set it to 0 and send the packet to real client
-			if int.from_bytes(packet[9:9+1],'little') == self.order:
-				packet[9:9+1]=b'\x00'	# set it back to 0
-				# set rtu no.
-				packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
-				senddata(self,packet)			
-			# else if type id is spi,dpi or AMI then change packet org address and send it to real client
-			elif int.from_bytes(packet[6:6+1],'little') <= 40:
-				packet[9:9+1]=b'\x00'	# set it back to 0
-				# set rtu no.
-				packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
-				senddata(self,packet)
+			packet[9:9+1]=b'\x00'	# set org back to 0
+			# set rtu no.
+			packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
+			senddata(self,packet)
 
 def readmm2ssserverthread(self):
 	global exitprogram,mainth,bufsize
