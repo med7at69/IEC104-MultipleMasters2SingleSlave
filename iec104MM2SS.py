@@ -18,6 +18,7 @@
 # This file: Read and write packets.
 #			 Handle network sockets.
 #			 Windows GUI
+#			 Windows service
 # *****************************************************
 #                       Imports
 # ------------------------------------------------------
@@ -30,7 +31,7 @@ from ipaddress import ip_address,ip_network
 import threading
 from os import remove,stat,mkdir,system,name
 from datetime import datetime
-from socket import socket,AF_INET,SOCK_STREAM,SOL_SOCKET,SO_REUSEADDR,SHUT_RDWR,error,timeout,SOCK_DGRAM,gaierror
+from socket import socket,AF_INET,SOCK_STREAM,SOL_SOCKET,SO_REUSEADDR,SHUT_RDWR,error,timeout,SOCK_DGRAM,gaierror,setdefaulttimeout
 from binascii import hexlify
 from signal import signal,SIGTERM
 from struct import unpack,pack
@@ -62,14 +63,15 @@ help6="\t -i or --ini\t\t\t\tinit file (comma separated values), default iec104m
 help7="\t -t or --ntp_update_every_sec\t\tNTP update interval, default=900 seconds (requires admin privilege).\n"
 help8="\t -s or --ntp_server\t\t\tNTP server, could be included multiple times (requires admin privilege).\n"
 help9="\t -n or --nogui\t\t\t\tstart program without GUI interface.\n"
-helpmess=help1+help2+help3+help4+help5+help6+help7+help8+help9
+help10="\t -c or --service\t\t\tstart program as Windows service (without GUI interface).\n"
+help11="\t To install the Windows service run 'iec104mm2ss --startup auto install'.\n"
+help12="\t For more details please check the help file 'iec104mm2ss.pdf'.\n"
+helpmess=help1+help2+help3+help4+help5+help6+help7+help8+help9+help10+help11+help12
 if name == 'nt':
 	dir='log\\'
-	datadir='data\\'
 	initfile='iec104mm2ss.csv'
 else:
 	dir='./log/'
-	datadir='./data/'
 	initfile='./iec104mm2ss.csv'
 
 ntpserver=[]
@@ -100,6 +102,7 @@ noofsys=0
 programstarted=0
 
 nogui=0
+runasservice=0
 
 # *****************************************************
 #                       Functions
@@ -1051,7 +1054,6 @@ def copytoframe2(self,fileonly=0):
 	text_box2.config(state=tk.DISABLED)
 	text_box2.see(tk.END)
 
-
 def onFrameConfigure(canvas):
     #Reset the scroll region to encompass the inner frame
     canvas.configure(scrollregion=canvas.bbox("all"))
@@ -1087,8 +1089,6 @@ def digitvalidation(input,key,name):
 				return False
 		else:
 			return False
-
-#def sendindex():
 
 def on_closing():
 	global exitprogram
@@ -1136,7 +1136,6 @@ def CreateToolTip(widget, text):
     widget.bind('<Enter>', enter)
     widget.bind('<Leave>', leave)		
 		
-		
 # *****************************************************
 #                       Main code
 # -----------------------------------------------------
@@ -1145,43 +1144,107 @@ signal(SIGTERM, signal_term_handler)
 
 register(cleanup)
 
-# create log folder
-try:
-	mkdir(dir)
-except FileExistsError:
-	pass
-
 # get program arguments
 # -h or --help							help message
 # -i or --ini							init file
 # -t or --ntp_update_every_sec			NTP update interval
 # -s or --ntp_server					NTP server
+notourarg = 0
 argvl = argv[1:]
 try:
-	options, args = getopt(argvl, "i:t:s:hn",
+	options, args = getopt(argvl, "i:t:s:hcn",
 						["ini=",
 						"ntp_update_every_sec=",
 						"ntp_server=",
 						"help",
+						"service",
 						"nogui"])
 except:
-	print(helpmess)
-	exit()
-
-# parse program aguments
-for argname, argvalue in options:
-	if argname in ['-h', '--help']:
+	if name == 'nt':
+		notourarg = 1
+	else:
 		print(helpmess)
 		exit()
-	elif argname in ['-n', '--nogui']:
-		nogui = 1
-	elif argname in ['-i', '--ini']:
-		initfile = argvalue
-	elif argname in ['-t','--ntp_update_every_sec']:
-		if argvalue.isdigit():
-			timeupdateevery=int(argvalue)
-	elif argname in ['-s', '--ntp_server']:
-		ntpserver.append(argvalue)
+
+# parse program aguments
+if not notourarg:
+	for argname, argvalue in options:
+		if argname in ['-h', '--help']:
+			print(helpmess)
+			exit()
+		elif argname in ['-n', '--nogui']:
+			nogui = 1
+		elif argname in ['-c', '--service']:
+			runasservice = 1
+			nogui = 1
+		elif argname in ['-i', '--ini']:
+			initfile = argvalue
+		elif argname in ['-t','--ntp_update_every_sec']:
+			if argvalue.isdigit():
+				timeupdateevery=int(argvalue)
+		elif argname in ['-s', '--ntp_server']:
+			ntpserver.append(argvalue)
+
+# under windows only, if run as service? or user provide one program argument not starting with '-' such as 'install'
+if name == 'nt' and (runasservice or notourarg or (len(argv) > 1 and argv[1][0:1] != '-')):
+	from win32serviceutil import ServiceFramework, HandleCommandLine
+	#import win32serviceutil
+	from win32service import SERVICE_STOP_PENDING
+	from win32event import CreateEvent, SetEvent, WaitForSingleObject, INFINITE
+	from servicemanager	import LogMsg, EVENTLOG_INFORMATION_TYPE, PYS_SERVICE_STARTED, Initialize, PrepareToHostSingle, StartServiceCtrlDispatcher
+
+	class iec104mm2ssService(ServiceFramework):
+		global argv
+		_svc_name_ = 'iec104mm2ss'
+		_svc_display_name_ = 'IEC104-Multiple Masters to Single Slave'
+		_svc_description_ = 'Connecting Multiple IEC 104 Masters to Single Slave'
+		if '.exe' in argv[0]:
+			_exe_name_ = argv[0]
+		else:
+			_exe_name_ = argv[0] + '.exe'
+		_exe_args_ = '-c'
+		
+		def __init__(self, args):
+			ServiceFramework.__init__(self, args)
+			self.hWaitStop = CreateEvent(None, 0, 0, None)
+			setdefaulttimeout(60)
+			
+		def SvcStop(self):
+			global exitprogram
+			exitprogram = 1				# exit program
+			self.ReportServiceStatus(SERVICE_STOP_PENDING)
+			SetEvent(self.hWaitStop)
+			
+		def SvcDoRun(self):
+			global programstarted, initfile
+			programstarted = 1
+			LogMsg(EVENTLOG_INFORMATION_TYPE, 
+								  PYS_SERVICE_STARTED, (self._svc_name_, initfile))
+			WaitForSingleObject(self.hWaitStop, INFINITE)
+
+	def servicethread():
+		StartServiceCtrlDispatcher()		# will not return untill service stopped
+	
+	if notourarg or (len(argv) > 1 and argv[1][0:1] != '-'):
+		HandleCommandLine(iec104mm2ssService)
+		exit()
+	else:
+		dir = '\\'.join(argv[0].split('\\')[0:-1]) + '\\'
+		initfile = dir + initfile
+		dir += 'log\\'
+		Initialize()
+		PrepareToHostSingle(iec104mm2ssService)
+		LogMsg(EVENTLOG_INFORMATION_TYPE, 
+							  PYS_SERVICE_STARTED, ('iec104mm2ss', 'before starting thread'))
+		tmpth1 = threading.Thread(target=servicethread,args=(), daemon=True)
+		th.append(tmpth1)
+		tmpth1.start()
+
+# create log folder
+try:
+	mkdir(dir)
+except FileExistsError:
+	pass
 
 # read init file
 #ntpserver,10.1.1.15,,
@@ -1508,7 +1571,8 @@ if	ntpserver:
 	tmpth.start()
 	
 # all thread started, ready.
-programstarted=1
+if not runasservice:
+	programstarted=1
 
 while True:
 	try:
