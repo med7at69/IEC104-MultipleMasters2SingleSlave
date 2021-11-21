@@ -1149,6 +1149,7 @@ register(cleanup)
 # -i or --ini							init file
 # -t or --ntp_update_every_sec			NTP update interval
 # -s or --ntp_server					NTP server
+# -c or --service						Run as Windows service
 notourarg = 0
 argvl = argv[1:]
 try:
