@@ -17,14 +17,16 @@ By M. Medhat
 Contents
 Introduction and why I wrote this program	2
 Program arguments	3
-Program operation	4
-Initial file format	5
-Program GUI	6
-Troubleshooting	7
-Appendix A - Sample initial file	9
-Appendix B – GUI screenshots	13
-Appendix C – Windows binary files	14
-Appendix D - Other projects		14
+Program operation	5
+Initial file format	6
+Program GUI	7
+Using Windows “sc” tool to manipulate service	9
+Troubleshooting	10
+Appendix A - Sample initial file	11
+Appendix B – GUI screenshots	15
+Appendix C – Windows binary files	16
+Appendix D - Other projects	16
+
 
  
 
@@ -71,6 +73,8 @@ LICENSE file.
 
 Program arguments
 
+There are two formats for the program arguments, one to provide parameters to run program normally (not as Windows service) and the other one is for manipulation of service operation. It is not possible to mix the two formats together.
+
 -h or --help				display help message.
  -i or --ini				specify init file name.
  -t or --ntp_update_every_sec		NTP update interval (seconds). Default = 900 sec.
@@ -85,6 +89,27 @@ example1:
 iec104mm2ss -i iec104rs1.csv
 example2:
 iec104mm2ss --ntp_server pool.ntp.org --ntp_server time.windows.com
+
+To install the program as Windows service run 'iec104mm2ss --startup auto install'
+When the program run as Windows service it will use the default initial file ‘iec104mm2ss.csv’. To use another initial file, check the part in this file explaining using Windows “sc” tool,
+
+Details of service arguments:
+
+Usage: 'iec104mm2ss [options] install|update|remove|start [...]|stop|restart [...]|debug [...]'
+Options for 'install' and 'update' commands only:
+ --username domain\username : The Username the service is to run under
+ --password password : The password for the username
+ --startup [manual|auto|disabled|delayed] : How the service starts, default = manual
+ --interactive : Allow the service to interact with the desktop.
+ --perfmonini file: .ini file to use for registering performance monitor data
+ --perfmondll file: .dll file to use when querying the service for
+   performance data, default = perfmondata.dll
+Options for 'start' and 'stop' commands only:
+ --wait seconds: Wait for the service to actually start or stop.
+                 If you specify --wait with the 'stop' option, the service
+                 and all dependent services will be stopped, each waiting
+                 the specified period.
+
 
 
 Program operation
@@ -166,6 +191,27 @@ Trying to make the graphical user interface as simple as possible:
 
 3-	Floating tooltips is displayed whenever possible to explain the GUI part.
 More screenshots available in appendix “C”.
+
+
+Using Windows “sc” tool to manipulate service
+
+When using the program to connect multiple SCADA masters to the same slave (RTU/SCS) then usually you will run the program from the SCADA front end servers, and it should run all the time and start running even if no one logged on the server. So, we need to install the program to run as a service (or multiple services) under Windows.
+The best way to install and start multiple instances of the program as multiple Windows services is to use the Windows “sc” tool came with Windows.
+
+For example, if you copied the program to the folder “c:\iec104mm2ss_1”, to install the service you can run “sc” as follows:
+sc create iec104mm2ss binPath=" c:\iec104mm2ss_1\iec104mm2ss.exe -c" start="auto" DisplayName="IEC104 Multiple Masters to Single Slave_1"
+For old windows versions such as windows server 2003 and 2008 we have to leave a “space” between the option and its value:
+sc create iec104mm2ss binPath= " c:\iec104mm2ss_1\iec104mm2ss.exe -c" start= "auto" DisplayName= "IEC104 Multiple Masters to Single Slave_1"
+The “-c” is a must to tell the program to start as a service not in program normal operation.
+
+Another example: if you want to specify initial file name other than the default name:
+sc create iec104mm2ss_1 binPath=" c:\iec104mm2ss_1\iec104mm2ss.exe -c -i iec104mm2ss_1.csv" start="auto" DisplayName="IEC104 Multiple Masters to Single Slave_1"
+The initial file “iec104mm2ss_1.csv” should also be in the same folder of the program which is here “c:\iec104mm2ss_1”
+
+You can easily create another service instance in another folder as follows:
+sc create iec104mm2ss_2 binPath=" c:\iec104mm2ss_2\iec104mm2ss.exe -c -i iec104mm2ss_2.csv" start="auto" DisplayName="IEC104 Multiple Masters to Single Slave_2"
+For more information, please check the Windows “sc” help.
+
 
 Troubleshooting
 
