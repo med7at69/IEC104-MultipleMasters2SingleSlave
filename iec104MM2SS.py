@@ -184,10 +184,6 @@ def openconnClient(self):
 		if self.conn:
 			self.PORT=int(self.srvport[i])
 			self.logfhw.write(str(datetime.now()) + f' : Client connected to {address}:{self.PORT}.' + '\n')
-			# send startdt
-			sendpacket=b'\x68\x04\x07\x00\x00\x00'
-			self.conn.sendall(sendpacket)
-			self.logfhw.write(str(datetime.now()) + f' : startdt transmitted.' + '\n')
 			self.waitserver=0	# should be reset when mm2ss client connect to the real server
 			break
 		i += 1
@@ -249,7 +245,7 @@ def closemm2ssservers(self):
 		if a != self:
 			# close connection and socket
 			if a.conn:
-				a.conn = closeconn(a)
+				a.conn = closeconn(a,1)
 			elif a.s:
 				a.s = closesocket(a.s)
 	
@@ -340,6 +336,9 @@ def incseqno(self,txrx):
 
 def initiate(self):
 	self.dataactive=0
+	if self.order:		# Master entry?
+		if mainth[self.index][0].masterdataactive > 0:
+			mainth[self.index][0].masterdataactive -= 1
 	self.statusvalue="NO"
 	self.statuscolor='red'
 	self.connectedatvalue=' '
@@ -361,6 +360,25 @@ def readpacketClient(self):
 		self.t2timeidle=time()
 		sendpacket=b'\x68\x04\x01\x00' + (self.rxlsb*2).to_bytes(1,'little') + self.rxmsb.to_bytes(1,'little') 
 		senddata(self,sendpacket)
+	if not self.dataactive and self.masterdataactive:			# At least one master connected.
+		# send startdt act
+		sendpacket=b'\x68\x04\x07\x00\x00\x00'
+		self.conn.sendall(sendpacket)
+		dt = str(datetime.now())
+		self.logfhw.write(dt + f' : startdt transmitted.' + '\n')
+		self.dataactive=1
+		self.statusvalue="YES"
+		self.statuscolor='green'
+		self.connectedatvalue=dt
+		self.updatestatusgui=1
+	elif self.dataactive and not self.masterdataactive:		# No master connected.
+		# send stopdt act
+		sendpacket=b'\x68\x04\x13\x00\x00\x00'
+		senddata(self,sendpacket)
+		# initialize
+		initiate(self)
+		dt = str(datetime.now())
+		self.logfhw.write(dt + f' : All masters down, stopdt act transmitted.' + '\n')
 	packet=''
 	# read the packet from buffer
 	if self.rdpointer != self.wrpointer:
@@ -374,16 +392,16 @@ def readpacketClient(self):
 		# decode U format packets
 		if packet[4:4+2] == '0b':			# startdt con packet
 			self.logfhw.write(dt + ' : startdt con received.' + '\n')
-			self.dataactive=1
-			self.statusvalue="YES"
-			self.statuscolor='green'
-			self.connectedatvalue=dt
-			self.updatestatusgui=1
 		elif packet[4:4+2] == '07':			# startdt act packet should not come from slave
 			# send startdt con
 			sendpacket=b'\x68\x04\x0B\x00\x00\x00'
 			senddata(self,sendpacket)
 			self.logfhw.write(dt + ' : startdt act received and con transmitted.' + '\n')
+			self.dataactive=1
+			self.statusvalue="YES"
+			self.statuscolor='green'
+			self.connectedatvalue=dt
+			self.updatestatusgui=1
 		elif  packet[4:4+2] == '43':		 	# testfr act packet
 			rcvtf=time()
 			rcvtfperiod=round(rcvtf - self.time1,1)
@@ -394,13 +412,15 @@ def readpacketClient(self):
 				self.rcvtfperiodmin=rcvtfperiod
 				self.logfhw.write(dt + ' : Received testfr act minimum period: ' + "{:04.1f}".format(float(rcvtfperiod)) + ' seconds.' + '\n')
 			self.time1=rcvtf
-		elif  packet[4:4+2] == '13':		 	# stopdt act packet
+		elif  packet[4:4+2] == '19':		 	# stopdt act packet
 			# send stopdt con
 			sendpacket=b'\x68\x04\x23\x00\x00\x00'
 			senddata(self,sendpacket)
 			self.logfhw.write(dt + ' : stopdt act/con done.' + '\n')
 			# initialize
 			initiate(self)
+		elif  packet[4:4+2] == '35':		 	# neglect stopdt con packet
+			pass
 		elif (int(packet[4:4+2],16) & 0x03) == 1:	# neglect S-format packet.
 			pass
 		# check if it is I format (bit 0=0 of 3rd byte or 4 and 5 digits of databuffer) then increase RX
@@ -455,21 +475,21 @@ def readpacket(self):
 		# decode U format packets
 		if packet[4:4+2] == '07':			# startdt act packet
 			# if mm2ss client connected to real server? then we will reply for everything
-			#if mainth[0].dataactive:
-				# send startdt con
-				sendpacket=b'\x68\x04\x0B\x00\x00\x00'
+			# send startdt con
+			sendpacket=b'\x68\x04\x0B\x00\x00\x00'
+			senddata(self,sendpacket)
+			self.logfhw.write(dt + ' : startdt act/con done.' + '\n')
+			if not self.dataactive:
+				# send end of initialization
+				sendpacket=b'\x68\x0E\x00\x00\x00\x00\x46\x01\x04\x00' + int(self.rtuno).to_bytes(2,'little') + b'\x00\x00\x00\x00'
 				senddata(self,sendpacket)
-				self.logfhw.write(dt + ' : startdt act/con done.' + '\n')
-				if not self.dataactive:
-					# send end of initialization
-					sendpacket=b'\x68\x0E\x00\x00\x00\x00\x46\x01\x04\x00' + int(self.rtuno).to_bytes(2,'little') + b'\x00\x00\x00\x00'
-					senddata(self,sendpacket)
-					self.logfhw.write(dt + ' : End of initialization transmitted.' + '\n')
-					self.dataactive=1
-					self.statusvalue="YES"
-					self.statuscolor='green'
-					self.connectedatvalue=dt
-					self.updatestatusgui=1
+				self.logfhw.write(dt + ' : End of initialization transmitted.' + '\n')
+				self.dataactive=1
+				mainth[self.index][0].masterdataactive += 1
+				self.statusvalue="YES"
+				self.statuscolor='green'
+				self.connectedatvalue=dt
+				self.updatestatusgui=1
 		elif  packet[4:4+2] == '43':		 	# testfr act packet
 			rcvtf=time()
 			rcvtfperiod=round(rcvtf - self.time1,1)
@@ -644,6 +664,7 @@ class iec104threadClient (threading.Thread):
 		self.rtunohex = self.rtunohex[2:2+2] + self.rtunohex[0:2]
 		self.rtuno = rtuno
 		self.dataactive=0
+		self.masterdataactive=0
 		self.initialize=0
 		self.rcvtfperiodmin=1000000
 		self.insenddata=0
