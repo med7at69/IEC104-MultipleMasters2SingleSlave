@@ -335,14 +335,14 @@ def incseqno(self,txrx):
 				self.rxmsb=0
 
 def initiate(self):
-	self.dataactive=0
-	if self.order:		# Master entry?
-		if mainth[self.index][0].masterdataactive > 0:
-			mainth[self.index][0].masterdataactive -= 1
 	self.statusvalue="NO"
 	self.statuscolor='red'
 	self.connectedatvalue=' '
 	self.updatestatusgui=1
+	self.dataactive=0
+	if self.order:		# Master entry?
+		if mainth[self.index][0].masterdataactive > 0:
+			mainth[self.index][0].masterdataactive -= 1
 	self.sentnorec=0
 	self.recnosend=0
 	self.rcvtfperiodmin=1000000
@@ -366,11 +366,11 @@ def readpacketClient(self):
 		self.conn.sendall(sendpacket)
 		dt = str(datetime.now())
 		self.logfhw.write(dt + f' : startdt transmitted.' + '\n')
-		self.dataactive=1
 		self.statusvalue="YES"
 		self.statuscolor='green'
 		self.connectedatvalue=dt
 		self.updatestatusgui=1
+		self.dataactive=1
 	elif self.dataactive and not self.masterdataactive:		# No master connected.
 		# send stopdt act
 		sendpacket=b'\x68\x04\x13\x00\x00\x00'
@@ -397,11 +397,11 @@ def readpacketClient(self):
 			sendpacket=b'\x68\x04\x0B\x00\x00\x00'
 			senddata(self,sendpacket)
 			self.logfhw.write(dt + ' : startdt act received and con transmitted.' + '\n')
-			self.dataactive=1
 			self.statusvalue="YES"
 			self.statuscolor='green'
 			self.connectedatvalue=dt
 			self.updatestatusgui=1
+			self.dataactive=1
 		elif  packet[4:4+2] == '43':		 	# testfr act packet
 			rcvtf=time()
 			rcvtfperiod=round(rcvtf - self.time1,1)
@@ -484,12 +484,12 @@ def readpacket(self):
 				sendpacket=b'\x68\x0E\x00\x00\x00\x00\x46\x01\x04\x00' + int(self.rtuno).to_bytes(2,'little') + b'\x00\x00\x00\x00'
 				senddata(self,sendpacket)
 				self.logfhw.write(dt + ' : End of initialization transmitted.' + '\n')
-				self.dataactive=1
-				mainth[self.index][0].masterdataactive += 1
 				self.statusvalue="YES"
 				self.statuscolor='green'
 				self.connectedatvalue=dt
 				self.updatestatusgui=1
+				self.dataactive=1
+				mainth[self.index][0].masterdataactive += 1
 		elif  packet[4:4+2] == '43':		 	# testfr act packet
 			rcvtf=time()
 			rcvtfperiod=round(rcvtf - self.time1,1)
