@@ -412,14 +412,14 @@ def readpacketClient(self):
 				self.rcvtfperiodmin=rcvtfperiod
 				self.logfhw.write(dt + ' : Received testfr act minimum period: ' + "{:04.1f}".format(float(rcvtfperiod)) + ' seconds.' + '\n')
 			self.time1=rcvtf
-		elif  packet[4:4+2] == '19':		 	# stopdt act packet
+		elif  packet[4:4+2] == '13':		 	# stopdt act packet
 			# send stopdt con
 			sendpacket=b'\x68\x04\x23\x00\x00\x00'
 			senddata(self,sendpacket)
 			self.logfhw.write(dt + ' : stopdt act/con done.' + '\n')
 			# initialize
 			initiate(self)
-		elif  packet[4:4+2] == '35':		 	# neglect stopdt con packet
+		elif  packet[4:4+2] == '23':		 	# neglect stopdt con packet
 			pass
 		elif (int(packet[4:4+2],16) & 0x03) == 1:	# neglect S-format packet.
 			pass
