@@ -166,8 +166,10 @@ def closesocket(s):
 
 def openconnClient(self):
 	global exitprogram
-	i=0
-	for address in self.srvip:
+	self.srviprotate += 1
+	if self.srviprotate >= len(self.srvip):
+		self.srviprotate = 0
+	for i in range(self.srviprotate,len(self.srvip)):
 		if exitprogram:
 			break
 		# open connection for mm2ss client to real server
@@ -175,7 +177,8 @@ def openconnClient(self):
 		try:
 			# set timeout = 3 sec.
 			self.conn.settimeout(3.0)
-			self.conn.connect((address, int(self.srvport[i])))
+			self.conn.connect((self.srvip[i], int(self.srvport[i])))
+			#self.conn.connect((address, int(self.srvport[i])))
 			self.timeidle=time()
 			self.t3timeidle=time()
 		except (timeout, gaierror, ConnectionRefusedError,OSError):
@@ -183,10 +186,9 @@ def openconnClient(self):
 			self.conn=0
 		if self.conn:
 			self.PORT=int(self.srvport[i])
-			self.logfhw.write(str(datetime.now()) + f' : Client connected to {address}:{self.PORT}.' + '\n')
+			self.logfhw.write(str(datetime.now()) + f' : Client connected to {self.srvip[i]}:{self.PORT}.' + '\n')
 			self.waitserver=0	# should be reset when mm2ss client connect to the real server
 			break
-		i += 1
 	return self.conn
 
 def openconn(self):
@@ -363,8 +365,9 @@ def readpacketClient(self):
 	if not self.dataactive and self.masterdataactive:			# At least one master connected.
 		# send startdt act
 		sendpacket=b'\x68\x04\x07\x00\x00\x00'
-		self.conn.sendall(sendpacket)
-		dt = str(datetime.now())
+		#self.conn.sendall(sendpacket)
+		dt=senddata(self,sendpacket)
+		#dt = str(datetime.now())
 		self.logfhw.write(dt + f' : startdt transmitted.' + '\n')
 		self.statusvalue="YES"
 		self.statuscolor='green'
@@ -374,10 +377,10 @@ def readpacketClient(self):
 	elif self.dataactive and not self.masterdataactive:		# No master connected.
 		# send stopdt act
 		sendpacket=b'\x68\x04\x13\x00\x00\x00'
-		senddata(self,sendpacket)
+		dt=senddata(self,sendpacket)
 		# initialize
 		initiate(self)
-		dt = str(datetime.now())
+		#dt = str(datetime.now())
 		self.logfhw.write(dt + f' : All masters down, stopdt act transmitted.' + '\n')
 	packet=''
 	# read the packet from buffer
@@ -672,6 +675,7 @@ class iec104threadClient (threading.Thread):
 		self.recnosend=0
 		self.srvip=srvip.copy()
 		self.srvport=srvport.copy()
+		self.srviprotate = -1
 		self.kpackets=k
 		# timeidle > t3 (time of testfr packet). if not receiving data during timeidle then disconnect.
 		self.tdisconnect=idletime
