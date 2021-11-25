@@ -103,6 +103,7 @@ programstarted=0
 
 nogui=0
 runasservice=0
+logupdateperiod=10		# in case no GUI mode then update log files every 10 seconds.
 
 # *****************************************************
 #                       Functions
@@ -349,6 +350,7 @@ def initiate(self):
 	self.recnosend=0
 	self.rcvtfperiodmin=1000000
 	self.time1=0
+	self.startdttime=0
 	# set initialize flag
 	self.initialize=1
 	self.logfilechanged=1
@@ -367,7 +369,7 @@ def readpacketClient(self):
 		sendpacket=b'\x68\x04\x07\x00\x00\x00'
 		#self.conn.sendall(sendpacket)
 		dt=senddata(self,sendpacket)
-		#dt = str(datetime.now())
+		self.startdttime=time()
 		self.logfhw.write(dt + f' : startdt transmitted.' + '\n')
 		self.statusvalue="YES"
 		self.statuscolor='green'
@@ -394,6 +396,7 @@ def readpacketClient(self):
 			self.rdpointer += 1
 		# decode U format packets
 		if packet[4:4+2] == '0b':			# startdt con packet
+			self.startdttime=0
 			self.logfhw.write(dt + ' : startdt con received.' + '\n')
 		elif packet[4:4+2] == '07':			# startdt act packet should not come from slave
 			# send startdt con
@@ -679,6 +682,7 @@ class iec104threadClient (threading.Thread):
 		self.kpackets=k
 		# timeidle > t3 (time of testfr packet). if not receiving data during timeidle then disconnect.
 		self.tdisconnect=idletime
+		self.startdttime=0
 		self.waitrestart=0
 		self.waitserver=1		# all mm2ss servers start waiting mm2ss client connection to real server (RTU or SCS)
 		self.index=0
@@ -760,6 +764,12 @@ class iec104threadClient (threading.Thread):
 				self.logfilechanged=1
 				closeconnClient(self)
 				self.conn=openconnClient(self)
+			# if not received startdt con after timeout then disconnect
+			if self.startdttime and ((time() - self.startdttime) > self.tdisconnect):
+				self.logfhw.write(str(datetime.now()) + ' : startdt con not received for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
+				self.logfilechanged=1
+				closeconnClient(self)
+				self.conn=openconnClient(self)
 			if not self.conn:
 				self.conn=openconnClient(self)
 			try:
@@ -802,6 +812,7 @@ class iec104thread (threading.Thread):
 		self.kpackets=k
 		# timeidle > t3 (time of testfr packet). if not receiving data during timeidle then disconnect.
 		self.tdisconnect=idletime
+		self.startdttime=0
 		self.waitrestart=0
 		self.index=0
 		self.csvindex=csvindex
@@ -996,6 +1007,8 @@ def applyaction(self):
 	cursel=self.cbx_action.current()
 	if cursel == 0:
 		# open log file
+		if self.logfilechanged:
+			self.logfhw.flush()
 		system(f'start notepad {self.logfilename}')
 	elif cursel == 1:
 		# Show log in textbox 1
@@ -1135,7 +1148,7 @@ class ToolTip(object):
         try:
             x, y, cx, cy = self.widget.bbox("insert")
         except (TypeError):
-            pass
+            x = 1;y = 1;cx = 2;cy = 2
         x = x + self.widget.winfo_rootx() + 57
         y = y + cy + self.widget.winfo_rooty() +27
         self.tipwindow = tw = tk.Toplevel(self.widget)
@@ -1600,12 +1613,23 @@ if	ntpserver:
 if not runasservice:
 	programstarted=1
 
+logupdate = time()
+
 while True:
 	try:
 		if exitprogram:
 			break
 
-		if not nogui:
+		if nogui:
+			# flush log files every 'logupdateperiod' seconds.
+			if (time() - logupdate) > logupdateperiod:
+				for row in mainth:
+					for a in row:
+						if a.logfilechanged:
+							a.logfilechanged=0
+							a.logfhw.flush()
+				logupdate = time()
+		else:
 			# update ntp gui
 			if 'Time updated' in timeupdated:
 				lbl_adminpriv.configure(text=timeupdated,fg='green')
