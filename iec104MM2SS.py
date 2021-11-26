@@ -1496,21 +1496,15 @@ if isfile(initfile):
 					if tmpipportlist[0] and tmpipportlist[1].isdigit() and int(tmpipportlist[1]) in range(1,65535):	# port no. is ok?
 						srvip.append(tmpipportlist[0])
 						srvport.append(tmpipportlist[1])
-				if not srvport or not ''.join(srvport) or not srvip or not ''.join(srvip):
-					pass
-				else:
+				if srvport and ''.join(srvport) and srvip and ''.join(srvip) and (row[0] not in csvindexlist):
 					portnolist.append('0')
 					srvipport = row[5]
-					if row[0] not in csvindexlist:
-						csvindexlist.append(row[0])
-						indexgroup = csvindexlist.index(row[0])
-						indexlist.append(indexgroup)
-						mainth.append([])
-						# reserve first place for the virtual master
-						mainth[indexgroup].append(0)
-					else:
-						# get correct indexgroup
-						indexgroup = csvindexlist.index(row[0])
+					csvindexlist.append(row[0])
+					indexgroup = csvindexlist.index(row[0])
+					indexlist.append(indexgroup)
+					mainth.append([])
+					# reserve first place for the virtual master
+					mainth[indexgroup].append(0)
 					# generate unique log file name for mm2ss client
 					dt=datetime.now()
 					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
