@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 #
 # ******************************************************
-# IEC 104 Multiple Masters to Single Slave (IEC104MM2SS
+# IEC 104 Multiple Masters to Single Slave (IEC104MM2SS)
 #  	     By M. Medhat - 1 Nov 2021 - Ver 1.0
 # ******************************************************
 #
@@ -1480,14 +1480,13 @@ if isfile(initfile):
 		#variable=value
 		csv_reader = reader(csv_file, delimiter=',')
 		noofsys=0
-		indexgroup= -1
 		for row in csv_reader:
 			if not row:
 				pass
 			# if first character of first column in any row = '!' then break
 			elif row[0][0:1] == '!' or exitprogram:
 				break
-			# Master entries - each row should start with integer, then sys name, portno (not required), rtuno, master(Y/N) and IP:PORT;IP:PORT.
+			# Slave (RTU) entries - each row should start with integer, then sys name, portno (not required), rtuno, master(Y/N) and IP:PORT;IP:PORT.
 			elif row[0].isdigit() and row[3].isdigit() and row[4] != "Y" and int(row[3]) in range(1,65535) and row[5]:
 				tmplist=row[5].split(';')
 				srvip=[]
@@ -1503,12 +1502,15 @@ if isfile(initfile):
 					portnolist.append('0')
 					srvipport = row[5]
 					if row[0] not in csvindexlist:
-						indexgroup += 1
-						indexlist.append(indexgroup)
 						csvindexlist.append(row[0])
+						indexgroup = csvindexlist.index(row[0])
+						indexlist.append(indexgroup)
 						mainth.append([])
 						# reserve first place for the virtual master
 						mainth[indexgroup].append(0)
+					else:
+						# get correct indexgroup
+						indexgroup = csvindexlist.index(row[0])
 					# generate unique log file name for mm2ss client
 					dt=datetime.now()
 					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
@@ -1537,47 +1539,43 @@ if isfile(initfile):
 					th.append(tmpth1)
 					tmpth1.start()
 					noofsys += 1
-			# slave (RTU) entries - each row should start with integer, then sys name, portno, rtuno, master(Y/N) and IP/Network filter.
+			# Master entries - each row should start with integer, then sys name, portno, rtuno, master(Y/N) and IP/Network filter.
 			elif row[0].isdigit() and row[2].isdigit() and row[3].isdigit() and row[4] == "Y" and row[2] not in portnolist and int(row[2]) in range(1,65535) and int(row[3]) in range(1,65535):
 				portnolist.append(row[2])
-				if row[0] not in csvindexlist:
-					indexgroup += 1
-					indexlist.append(indexgroup)
-					csvindexlist.append(row[0])
-					mainth.append([])
-					# reserve first place for the virtual master
-					mainth[indexgroup].append(0)
-				# generate unique log file names
-				dt=datetime.now()
-				currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
-				logfilename=f'{row[1]}-{currentdate}-{row[2]}'
-				tmpth = iec104thread(noofsys, f'M/{row[1][0:0+14]}',int(row[2][0:0+5]),int(row[3][0:0+5]),row[0],logfilename)
-				mainth[indexgroup].append(tmpth)
-				tmpth.daemon = True
-				tmpth.index=indexgroup
-				tmpth.order=len(mainth[indexgroup]) - 1
-				# identify log files
-				tmpth.logfhw=open(dir + logfilename + '.txt',"w")
-				tmpth.logfhw.write(f'{tmpth.name} log file .. RTU: {tmpth.rtuno}, listen port: {row[2]}\n')
-				tmpth.logfhr=open(dir + logfilename + '.txt',"r")
-				# get accepted hosts
-				if row[5]:
-					tmpth.acceptnetsys=row[5].split(';')
-					tmpth.filternet=row[5]
-				tmpth.kpackets=k
-				tmpth.tdisconnect=idletime
-				# create GUI resources for this rtu - 8 gadgets
-				# label:ID (5 char) label:System(16 char) label:Online (Yes/No) label:Port label:RTU label:connected at(26 char) listbox:Action(30 char) button:Action
-				# added to the class construction
-				tmpth.start()
-				# generate rest of the threads
-				tmpth1 = threading.Thread(target=readpacketthread,args=(tmpth,), daemon=True)
-				th.append(tmpth1)
-				tmpth1.start()
-				tmpth1 = threading.Thread(target=readmm2ssclientthread,args=(tmpth,), daemon=True)
-				th.append(tmpth1)
-				tmpth1.start()
-				noofsys += 1
+				if row[0] in csvindexlist:
+					# get correct indexgroup
+					indexgroup = csvindexlist.index(row[0])
+					# generate unique log file names
+					dt=datetime.now()
+					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
+					logfilename=f'{row[1]}-{currentdate}-{row[2]}'
+					tmpth = iec104thread(noofsys, f'M/{row[1][0:0+14]}',int(row[2][0:0+5]),int(row[3][0:0+5]),row[0],logfilename)
+					mainth[indexgroup].append(tmpth)
+					tmpth.daemon = True
+					tmpth.index=indexgroup
+					tmpth.order=len(mainth[indexgroup]) - 1
+					# identify log files
+					tmpth.logfhw=open(dir + logfilename + '.txt',"w")
+					tmpth.logfhw.write(f'{tmpth.name} log file .. RTU: {tmpth.rtuno}, listen port: {row[2]}\n')
+					tmpth.logfhr=open(dir + logfilename + '.txt',"r")
+					# get accepted hosts
+					if row[5]:
+						tmpth.acceptnetsys=row[5].split(';')
+						tmpth.filternet=row[5]
+					tmpth.kpackets=k
+					tmpth.tdisconnect=idletime
+					# create GUI resources for this rtu - 8 gadgets
+					# label:ID (5 char) label:System(16 char) label:Online (Yes/No) label:Port label:RTU label:connected at(26 char) listbox:Action(30 char) button:Action
+					# added to the class construction
+					tmpth.start()
+					# generate rest of the threads
+					tmpth1 = threading.Thread(target=readpacketthread,args=(tmpth,), daemon=True)
+					th.append(tmpth1)
+					tmpth1.start()
+					tmpth1 = threading.Thread(target=readmm2ssclientthread,args=(tmpth,), daemon=True)
+					th.append(tmpth1)
+					tmpth1.start()
+					noofsys += 1
 			if not nogui:
 				window.update()
 

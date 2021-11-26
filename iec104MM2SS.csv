@@ -30,7 +30,8 @@ t3,20,,,,
 w,8,,,,
 k,12,,,,
 #,,,,,
-# Masters/Clients settings in comma separated values.,,,,,
+# Masters/Slave settings in comma separated values.,,,,,
+# Slave in each group should come first before any master in same group othwise master entry will be neglected.,,,,,
 # Master entries should contain the master SCADA systems information such as port and rtu numbers.,,,,,
 # Slave entries should contain the slave RTUs information such as port and rtu numbers.,,,,,
 # port number should be unique for each master. It is not used for slaves.,,,,,
@@ -41,7 +42,7 @@ k,12,,,,
 # sys name is 14 characters maximum.,,,,,
 # id should be a number and should be matched for all master(s)/slave connected to each other in same group.,,,,,
 #,,,,,
-# id,sys name,port no,rtu no,master,hosts
+group id,sys name,port no,rtu no,master,hosts
 111,RTU-ABB,,32,N,127.0.0.1:2404;192.168.1.1:2405
 111,ABB-1,2406,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
 111,OSI-1,2407,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
