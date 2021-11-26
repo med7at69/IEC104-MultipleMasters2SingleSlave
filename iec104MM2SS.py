@@ -1541,8 +1541,8 @@ if isfile(initfile):
 					noofsys += 1
 			# Master entries - each row should start with integer, then sys name, portno, rtuno, master(Y/N) and IP/Network filter.
 			elif row[0].isdigit() and row[2].isdigit() and row[3].isdigit() and row[4] == "Y" and row[2] not in portnolist and int(row[2]) in range(1,65535) and int(row[3]) in range(1,65535):
-				portnolist.append(row[2])
 				if row[0] in csvindexlist:
+					portnolist.append(row[2])
 					# get correct indexgroup
 					indexgroup = csvindexlist.index(row[0])
 					# generate unique log file names
