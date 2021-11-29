@@ -191,6 +191,7 @@ def openconnClient(self):
 			self.logfhw.write(str(datetime.now()) + ' : Client connected to ' + self.srvip[i] + ':' + self.srvport[i] + '.\n')
 			self.waitrestart=0
 			self.waitserver=0	# should be reset when mm2ss client connect to the real server
+			self.dataactive = 0
 			break
 	return self.conn
 
@@ -218,6 +219,7 @@ def openconn(self):
 				self.logfhw.write(str(datetime.now()) + ' : Connected to IP: ' + str(addr[0]) + ', Port: ' + str(addr[1]) + '\n')
 				self.logfilechanged=1
 				self.waitrestart=0
+				#self.dataactive = 0
 			else:
 				self.conn=closeconn(self,0)
 				self.s=opensocket(self.PORT)
@@ -228,6 +230,7 @@ def closeconnClient(self,setdisconnet=1):
 		try:
 			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
 			self.conn.close()
+			self.conn = 0
 		except (error, OSError, ValueError):
 			pass
 		incseqno(self,'I')
@@ -241,6 +244,7 @@ def closeconn(self,setdisconnet=1):
 		try:
 			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
 			self.conn.close()
+			self.conn = 0
 		except (error, OSError, ValueError):
 			pass
 		incseqno(self,'I')
@@ -249,6 +253,7 @@ def closeconn(self,setdisconnet=1):
 	return 0
 
 def closemm2ssservers(self):
+	global mainth
 	self.waitserver=1
 	sleep(1)
 	for a in mainth[self.index]:
@@ -307,6 +312,7 @@ def senddata(self,data,addtime=0):
 			waitfort1 = time()
 			while self.sentnorec > self.kpackets:
 				if (time() - waitfort1) > t1:
+					self.sentnorec = 0
 					self.waitrestart = 1				# restart the connection
 				if not self.conn or self.disconnected or self.servrestartconn or self.waitrestart:
 					self.insenddata=0
@@ -363,10 +369,6 @@ def initiate(self):
 	self.statuscolor='red'
 	self.connectedatvalue=' '
 	self.updatestatusgui=1
-	self.dataactive=0
-	if self.order:		# Master entry?
-		if mainth[self.index][0].masterdataactive > 0:
-			mainth[self.index][0].masterdataactive -= 1
 	self.sentnorec=0
 	self.recnosend=0
 	self.rcvtfperiodmin=1000000
@@ -375,6 +377,10 @@ def initiate(self):
 	# set initialize flag
 	self.initialize=1
 	self.logfilechanged=1
+	if self.order:		# Master entry?
+		if mainth[self.index][0].masterdataactive > 0:
+			mainth[self.index][0].masterdataactive -= 1
+		self.dataactive=0
 
 # read packet from real server to mm2ss client.
 def readpacketClient(self):
@@ -406,6 +412,7 @@ def readpacketClient(self):
 		#dt = str(datetime.now())
 		self.logfhw.write(dt + ' : All masters down, stopdt act transmitted.\n')
 		self.logfilechanged=1
+		self.dataactive = 0
 	packet=''
 	# read the packet from buffer
 	if self.rdpointer != self.wrpointer:
@@ -602,7 +609,7 @@ def readpacketthreadClient (self):
 			initiate(self)
 			self.initialize=0
 			self.disconnected=0
-		if self.conn:
+		elif self.conn and not self.waitrestart:
 			readpacketClient(self)
 
 def readpacketthread (self):
@@ -619,7 +626,7 @@ def readpacketthread (self):
 			initiate(self)
 			self.initialize=0
 			self.disconnected=0
-		if self.conn:
+		elif self.conn and not self.waitrestart:
 			readpacket(self)
 
 '''
@@ -780,15 +787,15 @@ class iec104threadClient (threading.Thread):
 				break
 			# if not received startdt con after t1 timeout then disconnect
 			if self.conn and self.startdttime and ((time() - self.startdttime) > t1):
-				self.logfhw.write(str(datetime.now()) + ' : startdt con not received for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
+				self.logfhw.write(str(datetime.now()) + ' : startdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n')
 				self.logfilechanged=1
+				self.conn=closeconnClient(self)
+				self.conn=openconnClient(self)
 				self.startdttime=0
-				self.conn=closeconnClient(self)
-				self.conn=openconnClient(self)
 			if self.waitrestart:
-				self.waitrestart=0
 				self.conn=closeconnClient(self)
 				self.conn=openconnClient(self)
+				self.waitrestart=0
 			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
 			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
 				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
@@ -930,15 +937,15 @@ class iec104thread (threading.Thread):
 				self.s=opensocket(self.PORT)
 				self.conn=openconn(self)
 			if self.servrestartconn:
+				self.conn=closeconn(self)
+				self.s=opensocket(self.PORT)
+				self.conn=openconn(self)
 				self.servrestartconn=0
-				self.conn=closeconn(self)
-				self.s=opensocket(self.PORT)
-				self.conn=openconn(self)
 			if self.waitrestart:
-				self.waitrestart=0
 				self.conn=closeconn(self)
 				self.s=opensocket(self.PORT)
 				self.conn=openconn(self)
+				self.waitrestart=0
 			# if no data for t3 seconds then send testfr packet.
 			if ((time() - self.t3timeidle) > t3) and self.conn:
 				# send testfr act packet
