@@ -347,8 +347,7 @@ def senddata(self,data,addtime=0):
 			self.conn.sendall(data)
 			dt = datetime.now()
 	except (error, OSError, ValueError, AttributeError):
-		self.disconnectcause = 'Disconnecting due to exception in senddata function.'
-		self.waitrestart = 1				# restart the connection
+		pass
 	self.insenddata=0
 	return str(dt)
 
@@ -464,6 +463,7 @@ def readpacketClient(self):
 			self.logfhw.write(dt + ' : stopdt act/con done.' + '\n')
 			# initialize
 			initiate(self)
+			self.dataactive = 0
 		elif  packet[4:4+2] == '23':		 	# neglect stopdt con packet
 			pass
 		elif (int(packet[4:4+2],16) & 0x03) == 1:	# neglect S-format packet.
