@@ -187,6 +187,7 @@ def openconnClient(self):
 			self.conn.close()
 			self.conn=0
 		if self.conn:
+			self.connectedip=self.srvip[i]
 			self.PORT=int(self.srvport[i])
 			self.logfhw.write(str(datetime.now()) + ' : Client connected to ' + self.srvip[i] + ':' + self.srvport[i] + '.\n')
 			self.waitrestart=0
@@ -215,7 +216,8 @@ def openconn(self):
 						break
 				except (ValueError):
 					pass
-			if acceptedaddr or not ''.join(self.acceptnetsys):
+			if acceptedaddr or not ''.join(self.acceptnetsys) and (mainth[self.index][0].connectedip != str(addr[0])):
+				self.connectedip=str(addr[0])
 				self.logfhw.write(str(datetime.now()) + ' : Connected to IP: ' + str(addr[0]) + ', Port: ' + str(addr[1]) + '\n')
 				self.logfilechanged=1
 				self.waitrestart=0
@@ -226,7 +228,9 @@ def openconn(self):
 	return self.conn
 	
 def closeconnClient(self,setdisconnet=1):
+	self.connectedip=''
 	if self.conn:
+		self.waitserver=1
 		try:
 			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
 			self.conn.close()
@@ -236,10 +240,12 @@ def closeconnClient(self,setdisconnet=1):
 		incseqno(self,'I')
 		if setdisconnet:
 			self.disconnected=1
+		self.servrestartconn = 1
 		closemm2ssservers(self)
 	return 0
 
 def closeconn(self,setdisconnet=1):
+	self.connectedip=''
 	if self.conn:
 		try:
 			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
@@ -254,17 +260,18 @@ def closeconn(self,setdisconnet=1):
 
 def closemm2ssservers(self):
 	global mainth
-	self.waitserver=1
-	sleep(1)
+	#self.waitserver=1
+	#sleep(1)
 	for a in mainth[self.index]:
 		if a != self:
 			# close connection and socket
 			if a.conn:
+				a.disconnectcause = 'Disconnecting becasue server restarting.'
 				a.servrestartconn = 1
 				#a.conn = closeconn(a)
 			#elif a.s:
 				#a.s = closesocket(a.s)
-	
+
 # read data
 def readdata(self):
 	global bufsize
@@ -312,6 +319,7 @@ def senddata(self,data,addtime=0):
 			waitfort1 = time()
 			while self.sentnorec > self.kpackets:
 				if (time() - waitfort1) > t1:
+					self.disconnectcause = 'Disconnecting becasue t1 expired.'
 					self.sentnorec = 0
 					self.waitrestart = 1				# restart the connection
 				if not self.conn or self.disconnected or self.servrestartconn or self.waitrestart:
@@ -339,6 +347,7 @@ def senddata(self,data,addtime=0):
 			self.conn.sendall(data)
 			dt = datetime.now()
 	except (error, OSError, ValueError, AttributeError):
+		self.disconnectcause = 'Disconnecting due to exception in senddata function.'
 		self.waitrestart = 1				# restart the connection
 	self.insenddata=0
 	return str(dt)
@@ -606,6 +615,9 @@ def readpacketthreadClient (self):
 			self.initialize=0
 		if self.disconnected:
 			self.logfhw.write(str(datetime.now()) + ' : Disconnected .. trying connection ..\n')
+			if self.disconnectcause:
+				self.logfhw.write('\t\t\t     ' + self.disconnectcause + '\n')
+				self.disconnectcause = ''
 			initiate(self)
 			self.initialize=0
 			self.disconnected=0
@@ -623,6 +635,7 @@ def readpacketthread (self):
 			self.initialize=0
 		if self.disconnected:
 			self.logfhw.write(str(datetime.now()) + ' : Disconnected .. waiting for connection ..\n')
+			self.logfhw.write('\t\t\t     ' + self.disconnectcause + '\n')
 			initiate(self)
 			self.initialize=0
 			self.disconnected=0
@@ -693,6 +706,7 @@ class iec104threadClient (threading.Thread):
 		self.order=0
 		self.name = name
 		self.PORT = int(srvport[0])
+		self.connectedip=''
 		self.logfilename = dir + logfilename + '.txt'
 		#self.logfilenamegi = dir + logfilename + '-gi.txt'
 		self.logfhw=0
@@ -714,6 +728,7 @@ class iec104threadClient (threading.Thread):
 		self.kpackets=k
 		# timeidle > t3 (time of testfr packet). if not receiving data during timeidle then disconnect.
 		self.tdisconnect=idletime
+		self.disconnectcause=''
 		self.startdttime=0
 		self.waitrestart=0
 		self.waitserver=1		# all mm2ss servers start waiting mm2ss client connection to real server (RTU or SCS)
@@ -783,6 +798,7 @@ class iec104threadClient (threading.Thread):
 			if exitprogram:
 				# close conn
 				if self.conn:
+					self.disconnectcause = 'Exiting program.'
 					self.conn=closeconnClient(self)
 				break
 			# if not received startdt con after t1 timeout then disconnect
@@ -814,12 +830,14 @@ class iec104threadClient (threading.Thread):
 				ready_to_read, self.ready_to_write, in_error = \
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
+				self.disconnectcause = 'Disconnection while trying to select socket.'
 				self.conn=closeconnClient(self)
 				self.conn=openconnClient(self)
 				# connection error event here, maybe reconnect
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
+					self.disconnectcause = 'Disconnecting while reading socket data.'
 					self.conn=closeconnClient(self)
 					self.conn=openconnClient(self)
 		
@@ -832,6 +850,7 @@ class iec104thread (threading.Thread):
 		self.order=0
 		self.name = name
 		self.PORT = int(PORT)
+		self.connectedip=''
 		self.logfilename = dir + logfilename + '.txt'
 		#self.logfilenamegi = dir + logfilename + '-gi.txt'
 		self.logfhw=0
@@ -850,6 +869,7 @@ class iec104thread (threading.Thread):
 		self.kpackets=k
 		# timeidle > t3 (time of testfr packet). if not receiving data during timeidle then disconnect.
 		self.tdisconnect=idletime
+		self.disconnectcause=''
 		self.startdttime=0
 		self.waitrestart=0
 		self.servrestartconn=0
@@ -925,6 +945,7 @@ class iec104thread (threading.Thread):
 			if exitprogram:
 				# close conn
 				if self.conn:
+					self.disconnectcause = 'Disconnecting to exit program.'
 					self.conn=closeconn(self)
 				elif self.s:
 					self.s=closesocket(self.s)
@@ -960,6 +981,7 @@ class iec104thread (threading.Thread):
 				ready_to_read, self.ready_to_write, in_error = \
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
+				self.disconnectcause = 'Disconnecting while selecting socket.'
 				self.conn=closeconn(self)
 				self.s=opensocket(self.PORT)
 				self.conn=openconn(self)
@@ -967,6 +989,7 @@ class iec104thread (threading.Thread):
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
+					self.disconnectcause = 'Disconnecting while reading socket data.'
 					self.conn=closeconn(self)
 					self.s=opensocket(self.PORT)
 					self.conn=openconn(self)
