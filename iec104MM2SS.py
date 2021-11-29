@@ -80,6 +80,7 @@ updatetimegui=0
 timeupdateevery=900		# in seconds
 #rtuno=0
 idletime=60
+t1=15					# Time-Out of send or test APDU after which we must disconnect if no ack of I- Format packets.
 t2=10					# send S-Format if no receive I-format without sending I format for t2 seconds.
 t3=20					# send testfr packet if no data for t3 seconds.
 w=8
@@ -187,7 +188,8 @@ def openconnClient(self):
 			self.conn=0
 		if self.conn:
 			self.PORT=int(self.srvport[i])
-			self.logfhw.write(str(datetime.now()) + f' : Client connected to {self.srvip[i]}:{self.PORT}.' + '\n')
+			self.logfhw.write(str(datetime.now()) + ' : Client connected to ' + self.srvip[i] + ':' + self.srvport[i] + '.\n')
+			self.waitrestart=0
 			self.waitserver=0	# should be reset when mm2ss client connect to the real server
 			break
 	return self.conn
@@ -215,6 +217,7 @@ def openconn(self):
 			if acceptedaddr or not ''.join(self.acceptnetsys):
 				self.logfhw.write(str(datetime.now()) + ' : Connected to IP: ' + str(addr[0]) + ', Port: ' + str(addr[1]) + '\n')
 				self.logfilechanged=1
+				self.waitrestart=0
 			else:
 				self.conn=closeconn(self,0)
 				self.s=opensocket(self.PORT)
@@ -222,7 +225,11 @@ def openconn(self):
 	
 def closeconnClient(self,setdisconnet=1):
 	if self.conn:
-		self.conn.close()
+		try:
+			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
+			self.conn.close()
+		except (error, OSError, ValueError):
+			pass
 		incseqno(self,'I')
 		if setdisconnet:
 			self.disconnected=1
@@ -248,9 +255,10 @@ def closemm2ssservers(self):
 		if a != self:
 			# close connection and socket
 			if a.conn:
-				a.conn = closeconn(a,1)
-			elif a.s:
-				a.s = closesocket(a.s)
+				a.servrestartconn = 1
+				#a.conn = closeconn(a)
+			#elif a.s:
+				#a.s = closesocket(a.s)
 	
 # read data
 def readdata(self):
@@ -269,7 +277,10 @@ def readdata(self):
 					if packetlen != b'\x00':
 						data = hexlify(self.conn.recv(packetlen))
 						self.databuffer[self.wrpointer + 1] = [('68' + "{:02x}".format(int(packetlen)) + data.decode()), str(dt)]
-						self.sentnorec=0
+						# if I-Format or S-Format packets?
+						i = int.from_bytes(data[0:0+1], byteorder='little')
+						if (i & 1) == 0 or ((i & 1) == 1 and (i & 2) == 0):
+							self.sentnorec=0
 						self.timeidle=time()
 						self.t3timeidle=time()
 						if self.wrpointer == (bufsize - 1):
@@ -281,27 +292,36 @@ def readdata(self):
 				pass
 
 def senddata(self,data,addtime=0):
-	while not len(self.ready_to_write):
-		pass
-	while self.insenddata:
-		pass
-	self.insenddata=1
-	# wait if exceeded k packets send without receive.
-	while self.sentnorec > self.kpackets:
-		pass
+	global t1
 	dt = datetime.now()
-	if addtime:
-		# prepare CP56Time2a time
-		ml = int((int(dt.second) * 1000) + (int(dt.microsecond) / 1000))
-		min = int(dt.minute)
-		hrs = int(dt.hour)
-		day = int(((int(dt.weekday()) + 1) * 32) + int(dt.strftime("%d")))
-		mon = int(dt.month)
-		yr = int(dt.strftime("%y"))
-		data = data + ml.to_bytes(2,'little') + min.to_bytes(1,'little') + hrs.to_bytes(1,'little') + day.to_bytes(1,'little') + mon.to_bytes(1,'little') + yr.to_bytes(1,'little')
+	while (not len(self.ready_to_write)) or self.insenddata:
+		if not self.conn or self.disconnected or self.servrestartconn or self.waitrestart:
+			return str(dt)
+	#while self.insenddata:
+	#	pass
+	self.insenddata=1
 	try:
-		# add seq numbers to data packet if it is I format
+		# if I-Format packet
 		if (int.from_bytes(data[2:3], byteorder='little') & 1) == 0:
+			# wait for t2 timeout if exceeded k packets send without receive.
+			waitfort1 = time()
+			while self.sentnorec > self.kpackets:
+				if (time() - waitfort1) > t1:
+					self.waitrestart = 1				# restart the connection
+				if not self.conn or self.disconnected or self.servrestartconn or self.waitrestart:
+					self.insenddata=0
+					return str(dt)
+			dt = datetime.now()
+			if addtime:
+				# prepare CP56Time2a time
+				ml = int((int(dt.second) * 1000) + (int(dt.microsecond) / 1000))
+				min = int(dt.minute)
+				hrs = int(dt.hour)
+				day = int(((int(dt.weekday()) + 1) * 32) + int(dt.strftime("%d")))
+				mon = int(dt.month)
+				yr = int(dt.strftime("%y"))
+				data = data + ml.to_bytes(2,'little') + min.to_bytes(1,'little') + hrs.to_bytes(1,'little') + day.to_bytes(1,'little') + mon.to_bytes(1,'little') + yr.to_bytes(1,'little')
+			# add seq numbers to data packet if it is I format
 			data1 = data[0:2] + (self.txlsb*2).to_bytes(1,'little') + self.txmsb.to_bytes(1,'little') + (self.rxlsb*2).to_bytes(1,'little') + self.rxmsb.to_bytes(1,'little') + data[6:]
 			self.conn.sendall(data1)
 			incseqno(self,'TX')
@@ -311,8 +331,9 @@ def senddata(self,data,addtime=0):
 			self.t3timeidle=time()
 		else:
 			self.conn.sendall(data)
+			dt = datetime.now()
 	except (error, OSError, ValueError, AttributeError):
-		pass
+		self.waitrestart = 1				# restart the connection
 	self.insenddata=0
 	return str(dt)
 
@@ -364,18 +385,18 @@ def readpacketClient(self):
 		self.t2timeidle=time()
 		sendpacket=b'\x68\x04\x01\x00' + (self.rxlsb*2).to_bytes(1,'little') + self.rxmsb.to_bytes(1,'little') 
 		senddata(self,sendpacket)
-	if not self.dataactive and self.masterdataactive:			# At least one master connected.
+	if not self.startdttime and not self.dataactive and self.masterdataactive:			# At least one master connected.
 		# send startdt act
 		sendpacket=b'\x68\x04\x07\x00\x00\x00'
 		#self.conn.sendall(sendpacket)
 		dt=senddata(self,sendpacket)
 		self.startdttime=time()
-		self.logfhw.write(dt + f' : startdt transmitted.' + '\n')
+		self.logfhw.write(dt + ' : startdt transmitted.\n')
 		self.statusvalue="YES"
 		self.statuscolor='green'
 		self.connectedatvalue=dt
 		self.updatestatusgui=1
-		self.dataactive=1
+		self.logfilechanged=1
 	elif self.dataactive and not self.masterdataactive:		# No master connected.
 		# send stopdt act
 		sendpacket=b'\x68\x04\x13\x00\x00\x00'
@@ -383,7 +404,8 @@ def readpacketClient(self):
 		# initialize
 		initiate(self)
 		#dt = str(datetime.now())
-		self.logfhw.write(dt + f' : All masters down, stopdt act transmitted.' + '\n')
+		self.logfhw.write(dt + ' : All masters down, stopdt act transmitted.\n')
+		self.logfilechanged=1
 	packet=''
 	# read the packet from buffer
 	if self.rdpointer != self.wrpointer:
@@ -396,6 +418,7 @@ def readpacketClient(self):
 			self.rdpointer += 1
 		# decode U format packets
 		if packet[4:4+2] == '0b':			# startdt con packet
+			self.dataactive=1
 			self.startdttime=0
 			self.logfhw.write(dt + ' : startdt con received.' + '\n')
 		elif packet[4:4+2] == '07':			# startdt act packet should not come from slave
@@ -430,7 +453,7 @@ def readpacketClient(self):
 		elif (int(packet[4:4+2],16) & 0x03) == 1:	# neglect S-format packet.
 			pass
 		# check if it is I format (bit 0=0 of 3rd byte or 4 and 5 digits of databuffer) then increase RX
-		if (seqnotxlsb & 1) == 0:
+		elif (seqnotxlsb & 1) == 0:
 			incseqno(self,'RX')
 			if not self.recnosend:
 				self.t2timeidle=time()
@@ -440,7 +463,7 @@ def readpacketClient(self):
 				pass
 			# forward the packet to mm2ss server
 			# if spi, dpi or ami or org=0 then forward to all mm2ss clients.
-			if int(packet[12:12+2],16) <= 40 or not int(packet[18:18+2],16):
+			elif int(packet[12:12+2],16) <= 40 or not int(packet[18:18+2],16):
 				for a in mainth[self.index]:
 					if (a != self) and ((a.packet2server_wrp+1) != a.packet2server_rdp) and a.dataactive:
 						a.packet2server[a.packet2server_wrp+1] = bytearray.fromhex(packet)
@@ -461,7 +484,7 @@ def readpacketClient(self):
 
 # read packet from real client to mm2ss server.
 def readpacket(self):
-	global bufsize,w,t2
+	global bufsize,w,t2,mainth
 	# send S-Format packet if required
 	if (self.recnosend > w) or (self.recnosend and (time() - self.t2timeidle) > t2):
 		self.recnosend=0
@@ -516,7 +539,7 @@ def readpacket(self):
 		elif (int(packet[4:4+2],16) & 0x03) == 1:	# neglect S-format packet.
 			pass
 		# check if it is I format (bit 0=0 of 3rd byte or 4 and 5 digits of databuffer) then increase RX
-		if (seqnotxlsb & 1) == 0:
+		elif (seqnotxlsb & 1) == 0:
 			incseqno(self,'RX')
 			if not self.recnosend:
 				self.t2timeidle=time()
@@ -579,7 +602,8 @@ def readpacketthreadClient (self):
 			initiate(self)
 			self.initialize=0
 			self.disconnected=0
-		readpacketClient(self)
+		if self.conn:
+			readpacketClient(self)
 
 def readpacketthread (self):
 	global exitprogram
@@ -595,7 +619,8 @@ def readpacketthread (self):
 			initiate(self)
 			self.initialize=0
 			self.disconnected=0
-		readpacket(self)
+		if self.conn:
+			readpacket(self)
 
 '''
 Returns the epoch time fetched from the NTP server passed as argument.
@@ -637,7 +662,7 @@ def ntpthread():
 						SetSystemTime(utcTime.year, utcTime.month, utcTime.weekday(), utcTime.day, utcTime.hour, utcTime.minute, utcTime.second, 0)
 					else:
 						localTimetoset = datetime.fromtimestamp(epoch_time).strftime("%H:%M:%S")
-						exitcode = system(f'date +%T -s {localTimetoset}')
+						exitcode = system('date +%T -s ' + localTimetoset)
 						if WIFEXITED(exitcode):
 							if WEXITSTATUS(exitcode):
 								timeupdated = "No root privilege, cannot update time."
@@ -685,6 +710,7 @@ class iec104threadClient (threading.Thread):
 		self.startdttime=0
 		self.waitrestart=0
 		self.waitserver=1		# all mm2ss servers start waiting mm2ss client connection to real server (RTU or SCS)
+		self.servrestartconn=0
 		self.index=0
 		self.csvindex=csvindex
 
@@ -711,7 +737,7 @@ class iec104threadClient (threading.Thread):
 		if not nogui:
 			# GUI variables
 			self.filternet=srvipport
-			self.lbl_seqno=tk.Label(frame, text=f'{self.csvindex}', relief=tk.RIDGE, width=5,bg="white", fg="blue")
+			self.lbl_seqno=tk.Label(frame, text=self.csvindex, relief=tk.RIDGE, width=5,bg="white", fg="blue")
 			self.lbl_seqno.grid(row=self.threadID, column=0)
 			self.lbl_sys=tk.Label(frame, text=self.name, relief=tk.RIDGE, width=16,bg="white", fg="red")
 			self.lbl_sys.grid(row=self.threadID, column=1)
@@ -739,50 +765,55 @@ class iec104threadClient (threading.Thread):
 			CreateToolTip(self.btn_apply,"Apply action selected in combo box to Client.")
 
 	def run(self):
-		global exitprogram,programstarted,t3
+		global exitprogram,programstarted,t3,t1
 		ready_to_read=[]
 		# wait until starting all threads.
 		while not programstarted:
 			pass
 		while True:
-			while self.waitrestart:
-				pass
+			#while self.waitrestart:
+			#	pass
 			if exitprogram:
 				# close conn
 				if self.conn:
 					self.conn=closeconnClient(self)
 				break
+			# if not received startdt con after t1 timeout then disconnect
+			if self.conn and self.startdttime and ((time() - self.startdttime) > t1):
+				self.logfhw.write(str(datetime.now()) + ' : startdt con not received for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
+				self.logfilechanged=1
+				self.startdttime=0
+				self.conn=closeconnClient(self)
+				self.conn=openconnClient(self)
+			if self.waitrestart:
+				self.waitrestart=0
+				self.conn=closeconnClient(self)
+				self.conn=openconnClient(self)
+			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
+			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
+				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
+				self.logfilechanged=1
+				self.conn=closeconnClient(self)
+				self.conn=openconnClient(self)
 			# if no data for t3 seconds then send testfr packet.
 			if ((time() - self.t3timeidle) > t3) and self.conn:
 				# send testfr act packet
 				sendpacket=b'\x68\x04\x43\x00\x00\x00'
 				senddata(self,sendpacket)
 				self.t3timeidle=time()
-			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
-			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
-				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
-				self.logfilechanged=1
-				closeconnClient(self)
-				self.conn=openconnClient(self)
-			# if not received startdt con after timeout then disconnect
-			if self.startdttime and ((time() - self.startdttime) > self.tdisconnect):
-				self.logfhw.write(str(datetime.now()) + ' : startdt con not received for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
-				self.logfilechanged=1
-				closeconnClient(self)
-				self.conn=openconnClient(self)
 			if not self.conn:
 				self.conn=openconnClient(self)
 			try:
 				ready_to_read, self.ready_to_write, in_error = \
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
-				closeconnClient(self)
+				self.conn=closeconnClient(self)
 				self.conn=openconnClient(self)
 				# connection error event here, maybe reconnect
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
-					closeconnClient(self)
+					self.conn=closeconnClient(self)
 					self.conn=openconnClient(self)
 		
 # define iec104 thread for mm2ss server
@@ -814,6 +845,7 @@ class iec104thread (threading.Thread):
 		self.tdisconnect=idletime
 		self.startdttime=0
 		self.waitrestart=0
+		self.servrestartconn=0
 		self.index=0
 		self.csvindex=csvindex
 
@@ -847,7 +879,7 @@ class iec104thread (threading.Thread):
 		if not nogui:
 			# GUI variables
 			self.filternet=''
-			self.lbl_seqno=tk.Label(frame, text=f'{self.csvindex}', relief=tk.RIDGE, width=5,bg="white", fg="blue")
+			self.lbl_seqno=tk.Label(frame, text=self.csvindex, relief=tk.RIDGE, width=5,bg="white", fg="blue")
 			self.lbl_seqno.grid(row=self.threadID, column=0)
 			self.lbl_sys=tk.Label(frame, text=self.name, relief=tk.RIDGE, width=16,bg="white", fg="red")
 			self.lbl_sys.grid(row=self.threadID, column=1)
@@ -875,13 +907,13 @@ class iec104thread (threading.Thread):
 			CreateToolTip(self.btn_apply,"Apply acction selected in combo box to this Server.")
 
 	def run(self):
-		global exitprogram,programstarted,t3
+		global exitprogram,programstarted,t3,mainth
 		ready_to_read=[]
 		# wait until starting all threads.
 		while not programstarted:
 			pass
 		while True:
-			while self.waitrestart or mainth[self.index][0].waitserver:
+			while mainth[self.index][0].waitserver:
 				pass
 			if exitprogram:
 				# close conn
@@ -890,19 +922,29 @@ class iec104thread (threading.Thread):
 				elif self.s:
 					self.s=closesocket(self.s)
 				break
+			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
+			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
+				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
+				self.logfilechanged=1
+				self.conn=closeconn(self)
+				self.s=opensocket(self.PORT)
+				self.conn=openconn(self)
+			if self.servrestartconn:
+				self.servrestartconn=0
+				self.conn=closeconn(self)
+				self.s=opensocket(self.PORT)
+				self.conn=openconn(self)
+			if self.waitrestart:
+				self.waitrestart=0
+				self.conn=closeconn(self)
+				self.s=opensocket(self.PORT)
+				self.conn=openconn(self)
 			# if no data for t3 seconds then send testfr packet.
 			if ((time() - self.t3timeidle) > t3) and self.conn:
 				# send testfr act packet
 				sendpacket=b'\x68\x04\x43\x00\x00\x00'
 				senddata(self,sendpacket)
 				self.t3timeidle=time()
-			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
-			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
-				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
-				self.logfilechanged=1
-				closeconn(self)
-				self.s=opensocket(self.PORT)
-				self.conn=openconn(self)
 			if not self.s and not self.conn:
 				self.s=opensocket(self.PORT)
 			if not self.conn and self.s:
@@ -911,14 +953,14 @@ class iec104thread (threading.Thread):
 				ready_to_read, self.ready_to_write, in_error = \
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
-				closeconn(self)
+				self.conn=closeconn(self)
 				self.s=opensocket(self.PORT)
 				self.conn=openconn(self)
 				# connection error event here, maybe reconnect
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
-					closeconn(self)
+					self.conn=closeconn(self)
 					self.s=opensocket(self.PORT)
 					self.conn=openconn(self)
 					
@@ -941,11 +983,11 @@ def restartaction(self,ind):
 	if not portno or not rtuno or not sysname:
 		messagebox.showerror("Error", 'Port, RTU numbers and System name are required.')
 	elif not int(rtuno) or not int(portno):
-		messagebox.showerror("Error", f'Wrong port {portno} or rtu {rtuno}, must not equal zero.')
+		messagebox.showerror("Error", 'Wrong port ' + portno + ' or rtu ' + rtuno +', must not equal zero.')
 	elif (self.order != 0) and (portno in tmplist):
-		messagebox.showerror("Error", f'Wrong port {portno}, already used for other masters.')
+		messagebox.showerror("Error", 'Wrong port ' + portno +', already used for other masters.')
 	# confirm from user
-	elif messagebox.askokcancel("Restart sys", f'Do you want to restart "{self.csvindex}" with:\nName: {sysname}\nPort: {portno}\nRTU: {rtuno}\nIP/filter: {filternet}'):
+	elif messagebox.askokcancel("Restart sys", 'Do you want to restart "' + self.csvindex + '" with:\nName: ' + sysname + '\nPort: ' + portno + '\nRTU: ' + rtuno + '\nIP/filter: ' + filternet):
 		# close connection and socket
 		if self.order == 0:		# slave RTU entry
 			tmpipportlist1=filternet.split(';')
@@ -957,12 +999,8 @@ def restartaction(self,ind):
 					srvip.append(tmpipportlist[0])
 					srvport.append(tmpipportlist[1])
 			if not srvport or not ''.join(srvport) or not srvip or not ''.join(srvip):
-				messagebox.showerror("Error", f'Wrong port number, must be in range (1,65535).')
+				messagebox.showerror("Error", 'Wrong port number, must be in range (1,65535).')
 			else:
-				self.waitrestart=1
-				sleep(1)
-				if self.conn:
-					self.conn = closeconnClient(self)
 				if sysname[0:0+2] == 'S/':
 					self.name=sysname
 				else:
@@ -975,12 +1013,6 @@ def restartaction(self,ind):
 				self.srvport=srvport.copy()
 				self.filternet=filternet
 		else:					# master SCADA system entry
-			self.waitrestart=1
-			sleep(1)
-			if self.conn:
-				self.conn = closeconn(self)
-			elif self.s:
-				self.s = closesocket(self.s)
 			if sysname[0:0+2] == 'M/':
 				self.name=sysname
 			else:
@@ -991,11 +1023,11 @@ def restartaction(self,ind):
 			self.acceptnetsys.clear()
 			self.acceptnetsys=filternet.split(';')
 			self.filternet=filternet
-		# open connection with new settings
-		self.waitrestart=0
+		# restart connection with new settings
+		self.waitrestart=1
 		#self.s=opensocket(self.PORT)
 		#self.conn=openconn(self)
-		self.logfhw.write(str(datetime.now()) + ' : Restarted as per user request.\n')
+		self.logfhw.write(str(datetime.now()) + ' : Restarting as per user request.\n')
 		self.logfilechanged=1
 	if txtbx1thid == self:
 		updatetoframe1=1
@@ -1009,7 +1041,7 @@ def applyaction(self):
 		# open log file
 		if self.logfilechanged:
 			self.logfhw.flush()
-		system(f'start notepad {self.logfilename}')
+		system('start notepad ' + self.logfilename)
 	elif cursel == 1:
 		# Show log in textbox 1
 		txtbx1thid=self
@@ -1034,7 +1066,6 @@ def copytoframe1(self,fileonly=0):
 		#str_filter1.set(self.filternet)
 		ent_filter1.delete(0, 'end')
 		ent_filter1.insert(tk.END, self.filternet)
-		#print('filter: ',self.filternet)
 		if self.order == 0:		# disable port label for mm2ss slave.
 			ent_portno1.configure(state='disabled')
 		else:
@@ -1091,6 +1122,7 @@ def copytoframe2(self,fileonly=0):
 	text_box2.insert(tk.END, datatotext)
 	text_box2.config(state=tk.DISABLED)
 	text_box2.see(tk.END)
+
 
 def onFrameConfigure(canvas):
     #Reset the scroll region to encompass the inner frame
@@ -1173,6 +1205,7 @@ def CreateToolTip(widget, text):
         toolTip.hidetip()
     widget.bind('<Enter>', enter)
     widget.bind('<Leave>', leave)		
+		
 		
 # *****************************************************
 #                       Main code
@@ -1314,6 +1347,8 @@ if isfile(initfile):
 				ntpserver.append(row[1])
 			elif row[0] == 'idletime' and row[1].isdigit():
 				idletime=int(row[1])
+			elif row[0] == 't1' and row[1].isdigit():
+				t1=int(row[1])
 			elif row[0] == 't2' and row[1].isdigit():
 				t2=int(row[1])
 			elif row[0] == 't3' and row[1].isdigit():
@@ -1335,12 +1370,12 @@ if not nogui:
 	#window.state('zoomed')
 	window.resizable(False, False)
 	window.title("IEC-104 Many clients to one server")
-	listcol=[]
-	listrow=[]
-	listcol.extend(range(128))
-	listrow.extend(range(72))
-	window.rowconfigure(listrow, minsize=10, weight=1)
-	window.columnconfigure(listcol, minsize=10, weight=1)
+	#listcol=[]
+	#listrow=[]
+	#listcol.extend(range(128))
+	#listrow.extend(range(72))
+	#window.rowconfigure(listrow, minsize=10, weight=1)
+	#window.columnconfigure(listcol, minsize=10, weight=1)
 
 	tab_parent = ttk.Notebook(window)
 
@@ -1353,16 +1388,25 @@ if not nogui:
 	#tab_parent.pack(expand=1, fill='both')
 	tab_parent.grid(row=3, column=1,columnspan=127,rowspan=64,sticky="nsew")
 
-	tab_canvas.rowconfigure(listrow, minsize=10, weight=1)
-	tab_canvas.columnconfigure(listcol, minsize=10, weight=1)
+	#tab_canvas.rowconfigure(listrow, minsize=10, weight=1)
+	#tab_canvas.columnconfigure(listcol, minsize=10, weight=1)
 
-	tab_textbox.rowconfigure(listrow, minsize=10, weight=1)
-	tab_textbox.columnconfigure(listcol, minsize=10, weight=1)
+	#tab_textbox.rowconfigure(listrow, minsize=10, weight=1)
+	#tab_textbox.columnconfigure(listcol, minsize=10, weight=1)
 
+	for i in range(0,128):
+		window.rowconfigure(i, minsize=10, weight=1)
+		tab_canvas.rowconfigure(i, minsize=10, weight=1)
+		tab_textbox.rowconfigure(i, minsize=10, weight=1)
+	for i in range(0,72):
+		window.columnconfigure(i, minsize=10, weight=1)
+		tab_canvas.columnconfigure(i, minsize=10, weight=1)
+		tab_textbox.columnconfigure(i, minsize=10, weight=1)
+	
 	myFont = Font(family="Courier New", size=10)
 
 	dt=str(datetime.now())
-	lbl_startedat = tk.Label(master=window,relief=tk.GROOVE, borderwidth=3, fg='blue', text=f'Started at: {dt}')
+	lbl_startedat = tk.Label(master=window,relief=tk.GROOVE, borderwidth=3, fg='blue', text='Started at: ' + dt)
 	lbl_startedat.grid(row=1, column=1,columnspan=30,rowspan=2,sticky="nw")
 
 	reg = window.register(digitvalidation)
@@ -1508,16 +1552,16 @@ if isfile(initfile):
 					# generate unique log file name for mm2ss client
 					dt=datetime.now()
 					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
-					logfilename=f'{row[1]}-{currentdate}-{row[2]}'
+					logfilename=row[1] + '-' + currentdate + '-' + row[2]
 					# create thread class for mm2ss servers
-					tmpth = iec104threadClient(noofsys, f'S/{row[1][0:0+14]}',int(row[3][0:0+5]),srvipport,srvport,srvip,row[0],logfilename)
+					tmpth = iec104threadClient(noofsys, 'S/' + row[1][0:0+14],int(row[3][0:0+5]),srvipport,srvport,srvip,row[0],logfilename)
 					mainth[indexgroup][0]=tmpth
 					tmpth.daemon = True
 					tmpth.index=indexgroup
 					tmpth.order=len(mainth[indexgroup]) - 1
 					# identify log files
 					tmpth.logfhw=open(dir + logfilename + '.txt',"w")
-					tmpth.logfhw.write(f'{tmpth.name} log file .. RTU: {tmpth.rtuno}\n')
+					tmpth.logfhw.write(tmpth.name + ' log file .. RTU: ' + str(tmpth.rtuno) + '\n')
 					tmpth.logfhr=open(dir + logfilename + '.txt',"r")
 					tmpth.kpackets=k
 					tmpth.tdisconnect=idletime
@@ -1542,15 +1586,15 @@ if isfile(initfile):
 					# generate unique log file names
 					dt=datetime.now()
 					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
-					logfilename=f'{row[1]}-{currentdate}-{row[2]}'
-					tmpth = iec104thread(noofsys, f'M/{row[1][0:0+14]}',int(row[2][0:0+5]),int(row[3][0:0+5]),row[0],logfilename)
+					logfilename=row[1] + '-' + currentdate + '-' + row[2]
+					tmpth = iec104thread(noofsys, 'M/' + row[1][0:0+14],int(row[2][0:0+5]),int(row[3][0:0+5]),row[0],logfilename)
 					mainth[indexgroup].append(tmpth)
 					tmpth.daemon = True
 					tmpth.index=indexgroup
 					tmpth.order=len(mainth[indexgroup]) - 1
 					# identify log files
 					tmpth.logfhw=open(dir + logfilename + '.txt',"w")
-					tmpth.logfhw.write(f'{tmpth.name} log file .. RTU: {tmpth.rtuno}, listen port: {row[2]}\n')
+					tmpth.logfhw.write(tmpth.name + ' log file .. RTU: ' + str(tmpth.rtuno) + ', listen port: ' + row[2] + '\n')
 					tmpth.logfhr=open(dir + logfilename + '.txt',"r")
 					# get accepted hosts
 					if row[5]:
@@ -1576,9 +1620,9 @@ if isfile(initfile):
 # we should have at least 1 master and one client in each group
 if not len(indexlist) or not noofsys:
 	if not nogui:
-		messagebox.showerror("Error", f'Found {noofsys} Systems .. Exiting.\nTry "-h" or "--help"')
+		messagebox.showerror("Error", 'Found ' + str(noofsys) + ' Systems .. Exiting.\nTry "-h" or "--help"')
 	else:
-		print(f'Error .. Found {noofsys} Systems .. Exiting.\nTry "-h" or "--help"')
+		print('Error .. Found ' + str(noofsys) + ' Systems .. Exiting.\nTry "-h" or "--help"')
 	exit()
 
 for ind in indexlist:

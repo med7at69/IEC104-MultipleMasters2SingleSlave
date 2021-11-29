@@ -133,7 +133,7 @@ Initial file (default name is iec104mm2ss.csv): It is a comma separated values f
 a. NTP servers to update local time of the PC (requires admin/root privilege).
 b. Number of seconds to periodically update local time from NTP servers.
 c. Connection idle time after which program will disconnect and reconnect again.
-d. IEC 104 constants such as w, k, t2 and t3.
+d. IEC 104 constants such as w, k, t1, t2 and t3.
 e. “nogui” entry will start the program without GUI interface.
 f. Any number of groups, each group can have one slave (RTU/SCS) + any number of masters (SCADA master stations).
 Log file for each RTU and each master are saved in folder “log”. Folder “log” will be created in the same folder where the program starts in.
@@ -253,13 +253,16 @@ ntp_server,time.windows.com,,,,
 ntp_server,pool.ntp.org,,,,
 ntp_update_every_sec,900,,,,
 #,,,,,
-# IEC 104 constants,,,,,
-# w: the IEC 104 w constant. Default is 8 packets.,,,,,
-# k: the IEC 104 k constant. Default is 12 packets.,,,,,
+# IEC 104 constants:,,,,,
+# w: Max. number of APDUs the receiver should wait before ack. Default is 8 packets.,,,,,
+# k: Max. number of APDUs the transmitter can send before receiving ack. Default is 12 packets.,,,,,
 # idletime: time in seconds. If no data for idletime seconds the connection will be disconnected.,,,,,
-#t2: IEC 104 time constant in seconds,,,,,
-#t3: IEC 104 time constant in seconds.,,,,,
+"#t1, t2 and t3: IEC 104 time constant in seconds",,,,,
+#t1: Time-Out of send or test APDU after which we must disconnect if no ack of I-Format packets. Default is 15 sec.,,,,,
+#t2: Send S-Format if no receive I-format without sending I format for t2 seconds. Default is 10 sec.,,,,,
+#t3: send testfr packet if no data for t3 seconds. Default is 20 sec.,,,,,
 idletime,60,,,,
+t1,15,,,,
 t2,10,,,,
 t3,20,,,,
 w,8,,,,
