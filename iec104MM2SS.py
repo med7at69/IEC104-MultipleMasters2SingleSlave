@@ -88,7 +88,7 @@ k=12
 
 exitprogram=0
 
-bufsize=100
+bufsize=1000
 mainth=[[]]
 th=[]
 indexlist=[]
@@ -192,7 +192,6 @@ def openconnClient(self):
 			self.logfhw.write(str(datetime.now()) + ' : Client connected to ' + self.srvip[i] + ':' + self.srvport[i] + '.\n')
 			self.waitrestart=0
 			self.waitserver=0	# should be reset when mm2ss client connect to the real server
-			self.dataactive = 0
 			break
 	return self.conn
 
@@ -216,12 +215,11 @@ def openconn(self):
 						break
 				except (ValueError):
 					pass
-			if acceptedaddr or not ''.join(self.acceptnetsys) and (mainth[self.index][0].connectedip != str(addr[0])):
+			if (acceptedaddr or not ''.join(self.acceptnetsys)) and mainth[self.index][0].connectedip and (mainth[self.index][0].connectedip != str(addr[0])):
 				self.connectedip=str(addr[0])
 				self.logfhw.write(str(datetime.now()) + ' : Connected to IP: ' + str(addr[0]) + ', Port: ' + str(addr[1]) + '\n')
 				self.logfilechanged=1
 				self.waitrestart=0
-				#self.dataactive = 0
 			else:
 				self.conn=closeconn(self,0)
 				self.s=opensocket(self.PORT)
@@ -239,9 +237,14 @@ def closeconnClient(self,setdisconnet=1):
 			pass
 		incseqno(self,'I')
 		if setdisconnet:
-			self.disconnected=1
-		self.servrestartconn = 1
-		closemm2ssservers(self)
+			self.logfhw.write(str(datetime.now()) + ' : Disconnected .. trying connection ..\n')
+			if self.disconnectcause:
+				self.logfhw.write('\t\t\t     ' + self.disconnectcause + '\n')
+				self.disconnectcause = ''
+			self.logfilechanged=1
+			initiate(self)
+			self.initialize=0
+			closemm2ssservers(self)
 	return 0
 
 def closeconn(self,setdisconnet=1):
@@ -255,7 +258,13 @@ def closeconn(self,setdisconnet=1):
 			pass
 		incseqno(self,'I')
 		if setdisconnet:
-			self.disconnected=1
+			self.logfhw.write(str(datetime.now()) + ' : Disconnected .. waiting for connection ..\n')
+			if self.disconnectcause:
+				self.logfhw.write('\t\t\t     ' + self.disconnectcause + '\n')
+				self.disconnectcause = ''
+			self.logfilechanged=1
+			initiate(self)
+			self.initialize=0
 	return 0
 
 def closemm2ssservers(self):
@@ -268,9 +277,6 @@ def closemm2ssservers(self):
 			if a.conn:
 				a.disconnectcause = 'Disconnecting becasue server restarting.'
 				a.servrestartconn = 1
-				#a.conn = closeconn(a)
-			#elif a.s:
-				#a.s = closesocket(a.s)
 
 # read data
 def readdata(self):
@@ -281,14 +287,14 @@ def readdata(self):
 				data = self.conn.recv(2)
 				if data:
 					dt = datetime.now()
-					packetlen=b'\x00'
+					packetlen=b'\x00'		# b'\x00'
 					if data[0] == 104:
 						packetlen=data[1]
 					elif data[1] == 104:
 						packetlen=self.conn.recv(1)
 					if packetlen != b'\x00':
 						data = hexlify(self.conn.recv(packetlen))
-						self.databuffer[self.wrpointer + 1] = [('68' + "{:02x}".format(int(packetlen)) + data.decode()), str(dt)]
+						self.databuffer[self.wrpointer + 1] = [('68' + "{:02x}".format(packetlen) + data.decode()), str(dt)]
 						# if I-Format or S-Format packets?
 						i = int.from_bytes(data[0:0+1], byteorder='little')
 						if (i & 1) == 0 or ((i & 1) == 1 and (i & 2) == 0):
@@ -301,17 +307,15 @@ def readdata(self):
 							self.wrpointer += 1
 					return packetlen
 			except (BlockingIOError, error, OSError, ValueError):
-				pass
+				return 0
+	return 0
 
 def senddata(self,data,addtime=0):
 	global t1
 	dt = datetime.now()
-	while (not len(self.ready_to_write)) or self.insenddata:
-		if not self.conn or self.disconnected or self.servrestartconn or self.waitrestart:
+	while (not len(self.ready_to_write)):
+		if not self.conn or self.servrestartconn or self.waitrestart:
 			return str(dt)
-	#while self.insenddata:
-	#	pass
-	self.insenddata=1
 	try:
 		# if I-Format packet
 		if (int.from_bytes(data[2:3], byteorder='little') & 1) == 0:
@@ -322,8 +326,7 @@ def senddata(self,data,addtime=0):
 					self.disconnectcause = 'Disconnecting becasue t1 expired.'
 					self.sentnorec = 0
 					self.waitrestart = 1				# restart the connection
-				if not self.conn or self.disconnected or self.servrestartconn or self.waitrestart:
-					self.insenddata=0
+				if not self.conn or self.servrestartconn or self.waitrestart:
 					return str(dt)
 			dt = datetime.now()
 			if addtime:
@@ -348,7 +351,6 @@ def senddata(self,data,addtime=0):
 			dt = datetime.now()
 	except (error, OSError, ValueError, AttributeError):
 		pass
-	self.insenddata=0
 	return str(dt)
 
 def incseqno(self,txrx):
@@ -373,6 +375,7 @@ def incseqno(self,txrx):
 				self.rxmsb=0
 
 def initiate(self):
+	global mainth
 	self.statusvalue="NO"
 	self.statuscolor='red'
 	self.connectedatvalue=' '
@@ -388,11 +391,19 @@ def initiate(self):
 	if self.order:		# Master entry?
 		if mainth[self.index][0].masterdataactive > 0:
 			mainth[self.index][0].masterdataactive -= 1
-		self.dataactive=0
+	else:
+		self.masterdataactive = 0
+	self.dataactive=0
 
 # read packet from real server to mm2ss client.
 def readpacketClient(self):
-	global bufsize,w,t2
+	global bufsize,w,t2,t3,exitprogram
+	# if no data for t3 seconds then send testfr packet.
+	if ((time() - self.t3timeidle) > t3) and self.conn:
+		# send testfr act packet
+		sendpacket=b'\x68\x04\x43\x00\x00\x00'
+		senddata(self,sendpacket)
+		self.t3timeidle=time()
 	# send S-Format packet if required
 	if (self.recnosend > w) or (self.recnosend and ((time() - self.t2timeidle) > t2)):
 		self.recnosend=0
@@ -402,25 +413,19 @@ def readpacketClient(self):
 	if not self.startdttime and not self.dataactive and self.masterdataactive:			# At least one master connected.
 		# send startdt act
 		sendpacket=b'\x68\x04\x07\x00\x00\x00'
-		#self.conn.sendall(sendpacket)
 		dt=senddata(self,sendpacket)
 		self.startdttime=time()
 		self.logfhw.write(dt + ' : startdt transmitted.\n')
-		self.statusvalue="YES"
-		self.statuscolor='green'
-		self.connectedatvalue=dt
-		self.updatestatusgui=1
 		self.logfilechanged=1
-	elif self.dataactive and not self.masterdataactive:		# No master connected.
+	elif not self.startdttime and self.dataactive and not self.masterdataactive:		# No master connected.
 		# send stopdt act
 		sendpacket=b'\x68\x04\x13\x00\x00\x00'
 		dt=senddata(self,sendpacket)
-		# initialize
-		initiate(self)
-		#dt = str(datetime.now())
+		self.startdttime=time()
 		self.logfhw.write(dt + ' : All masters down, stopdt act transmitted.\n')
 		self.logfilechanged=1
-		self.dataactive = 0
+	# read from mm2ss servers and send to real server
+	readmm2ssserver(self)
 	packet=''
 	# read the packet from buffer
 	if self.rdpointer != self.wrpointer:
@@ -433,9 +438,13 @@ def readpacketClient(self):
 			self.rdpointer += 1
 		# decode U format packets
 		if packet[4:4+2] == '0b':			# startdt con packet
-			self.dataactive=1
 			self.startdttime=0
+			self.dataactive=1
 			self.logfhw.write(dt + ' : startdt con received.' + '\n')
+			self.statusvalue="YES"
+			self.statuscolor='green'
+			self.connectedatvalue=dt
+			self.updatestatusgui=1
 		elif packet[4:4+2] == '07':			# startdt act packet should not come from slave
 			# send startdt con
 			sendpacket=b'\x68\x04\x0B\x00\x00\x00'
@@ -460,12 +469,13 @@ def readpacketClient(self):
 			# send stopdt con
 			sendpacket=b'\x68\x04\x23\x00\x00\x00'
 			senddata(self,sendpacket)
-			self.logfhw.write(dt + ' : stopdt act/con done.' + '\n')
+			self.logfhw.write(dt + ' : stopdt act received and con transmitted.' + '\n')
 			# initialize
 			initiate(self)
-			self.dataactive = 0
-		elif  packet[4:4+2] == '23':		 	# neglect stopdt con packet
-			pass
+		elif  packet[4:4+2] == '23':		 	# stopdt con packet
+			self.logfhw.write(dt + ' : stopdt con received.' + '\n')
+			# initialize
+			initiate(self)
 		elif (int(packet[4:4+2],16) & 0x03) == 1:	# neglect S-format packet.
 			pass
 		# check if it is I format (bit 0=0 of 3rd byte or 4 and 5 digits of databuffer) then increase RX
@@ -481,6 +491,8 @@ def readpacketClient(self):
 			# if spi, dpi or ami or org=0 then forward to all mm2ss clients.
 			elif int(packet[12:12+2],16) <= 40 or not int(packet[18:18+2],16):
 				for a in mainth[self.index]:
+					if exitprogram:
+						break
 					if (a != self) and ((a.packet2server_wrp+1) != a.packet2server_rdp) and a.dataactive:
 						a.packet2server[a.packet2server_wrp+1] = bytearray.fromhex(packet)
 						if a.packet2server_wrp == (bufsize - 1):
@@ -500,13 +512,21 @@ def readpacketClient(self):
 
 # read packet from real client to mm2ss server.
 def readpacket(self):
-	global bufsize,w,t2,mainth
+	global bufsize,w,t2,t3,mainth
+	# if no data for t3 seconds then send testfr packet.
+	if ((time() - self.t3timeidle) > t3) and self.conn:
+		# send testfr act packet
+		sendpacket=b'\x68\x04\x43\x00\x00\x00'
+		senddata(self,sendpacket)
+		self.t3timeidle=time()
 	# send S-Format packet if required
 	if (self.recnosend > w) or (self.recnosend and (time() - self.t2timeidle) > t2):
 		self.recnosend=0
 		self.t2timeidle=time()
 		sendpacket=b'\x68\x04\x01\x00' + (self.rxlsb*2).to_bytes(1,'little') + self.rxmsb.to_bytes(1,'little') 
 		senddata(self,sendpacket)
+	# read from mm2ss client and send to real client
+	readmm2ssclient(self)
 	packet=''
 	# read the packet from buffer
 	if self.rdpointer != self.wrpointer:
@@ -571,38 +591,36 @@ def readpacket(self):
 					self.packet2client_wrp += 1
 		self.logfilechanged=1
 
-def readmm2ssclientthread(self):
+#def readmm2ssclientthread(self):
+def readmm2ssclient(self):
 	global exitprogram,bufsize
-	while True:
-		if exitprogram:
-			break
-		# read from mm2ss client and send to real client
-		if self.packet2server_rdp != self.packet2server_wrp and self.dataactive:
-			packet=self.packet2server[self.packet2server_rdp+1]
-			if self.packet2server_rdp == (bufsize - 1):
-				self.packet2server_rdp = -1
-			else:
-				self.packet2server_rdp += 1
-			packet[9:9+1]=b'\x00'	# set org back to 0
-			# set rtu no.
-			packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
-			senddata(self,packet)
+	# read from mm2ss client and send to real client
+	if self.packet2server_rdp != self.packet2server_wrp and self.dataactive:
+		packet=self.packet2server[self.packet2server_rdp+1]
+		if self.packet2server_rdp == (bufsize - 1):
+			self.packet2server_rdp = -1
+		else:
+			self.packet2server_rdp += 1
+		packet[9:9+1]=b'\x00'	# set org back to 0
+		# set rtu no.
+		packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
+		senddata(self,packet)
 
-def readmm2ssserverthread(self):
+#def readmm2ssserverthread(self):
+def readmm2ssserver(self):
 	global exitprogram,mainth,bufsize
-	while True:
-		if exitprogram:
+	# read from mm2ss servers and send to real server
+	for a in mainth[self.index]:
+		if exitprogram or not self.dataactive:
 			break
-		# read from mm2ss servers and send to real server
-		for a in mainth[self.index]:
-			if (a != self) and (a.packet2client_rdp != a.packet2client_wrp):
-				packet=a.packet2client[a.packet2client_rdp+1]
-				if a.packet2client_rdp == (bufsize - 1):
-					a.packet2client_rdp = -1
-				else:
-					a.packet2client_rdp += 1
-				packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
-				senddata(self,packet)			
+		if (a != self) and (a.packet2client_rdp != a.packet2client_wrp):
+			packet=a.packet2client[a.packet2client_rdp+1]
+			if a.packet2client_rdp == (bufsize - 1):
+				a.packet2client_rdp = -1
+			else:
+				a.packet2client_rdp += 1
+			packet[10:10+2]=int(self.rtuno).to_bytes(2,'little')
+			senddata(self,packet)			
 
 def readpacketthreadClient (self):
 	global exitprogram
@@ -613,15 +631,7 @@ def readpacketthreadClient (self):
 		if self.initialize:
 			self.logfhw.write(str(datetime.now()) + ' : Initialized ..\n')
 			self.initialize=0
-		if self.disconnected:
-			self.logfhw.write(str(datetime.now()) + ' : Disconnected .. trying connection ..\n')
-			if self.disconnectcause:
-				self.logfhw.write('\t\t\t     ' + self.disconnectcause + '\n')
-				self.disconnectcause = ''
-			initiate(self)
-			self.initialize=0
-			self.disconnected=0
-		elif self.conn and not self.waitrestart:
+		if self.conn and not self.waitrestart:
 			readpacketClient(self)
 
 def readpacketthread (self):
@@ -633,13 +643,7 @@ def readpacketthread (self):
 		if self.initialize:
 			self.logfhw.write(str(datetime.now()) + ' : Initialized ..\n')
 			self.initialize=0
-		if self.disconnected:
-			self.logfhw.write(str(datetime.now()) + ' : Disconnected .. waiting for connection ..\n')
-			self.logfhw.write('\t\t\t     ' + self.disconnectcause + '\n')
-			initiate(self)
-			self.initialize=0
-			self.disconnected=0
-		elif self.conn and not self.waitrestart:
+		if self.conn and not self.waitrestart and not self.servrestartconn:
 			readpacket(self)
 
 '''
@@ -697,6 +701,13 @@ def ntpthread():
 		updatetimegui=1
 		sleep(timeupdateevery)
 
+def restartconnClient(self,message=''):
+	if message:
+		self.logfhw.write(str(datetime.now()) + ' : ' + message)
+		self.logfilechanged=1
+	self.conn=closeconnClient(self)
+	self.conn=openconnClient(self)
+
 # define iec104 thread for mm2ss client
 class iec104threadClient (threading.Thread):
 	global bufsize,dir,idletime,k,nogui
@@ -719,7 +730,6 @@ class iec104threadClient (threading.Thread):
 		self.masterdataactive=0
 		self.initialize=0
 		self.rcvtfperiodmin=1000000
-		self.insenddata=0
 		self.sentnorec=0
 		self.recnosend=0
 		self.srvip=srvip.copy()
@@ -737,7 +747,6 @@ class iec104threadClient (threading.Thread):
 		self.csvindex=csvindex
 
 		# py will write this variable when connection disconnected.
-		self.disconnected=0
 		self.txlsb=0
 		self.txmsb=0
 		self.rxlsb=0
@@ -752,7 +761,9 @@ class iec104threadClient (threading.Thread):
 		# fifo buffer variables used between this mm2ss client and real server
 		self.rdpointer=-1
 		self.wrpointer=-1
-		self.databuffer=[0 for i in range(bufsize+1)]
+		self.databuffer=[[0] * 2 for i in range(bufsize+1)]
+		#[[0] * m for i in range(n)]		#  creates a list of n elements, where each element is a list of m zeros
+		#self.databuffer=[0 for i in range(bufsize+1)]
 
 		self.ready_to_write=[]
 
@@ -787,14 +798,12 @@ class iec104threadClient (threading.Thread):
 			CreateToolTip(self.btn_apply,"Apply action selected in combo box to Client.")
 
 	def run(self):
-		global exitprogram,programstarted,t3,t1
+		global exitprogram,programstarted,t1
 		ready_to_read=[]
 		# wait until starting all threads.
 		while not programstarted:
 			pass
 		while True:
-			#while self.waitrestart:
-			#	pass
 			if exitprogram:
 				# close conn
 				if self.conn:
@@ -803,27 +812,16 @@ class iec104threadClient (threading.Thread):
 				break
 			# if not received startdt con after t1 timeout then disconnect
 			if self.conn and self.startdttime and ((time() - self.startdttime) > t1):
-				self.logfhw.write(str(datetime.now()) + ' : startdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n')
-				self.logfilechanged=1
-				self.conn=closeconnClient(self)
-				self.conn=openconnClient(self)
+				message = 'startdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n'
+				restartconnClient(self,message)
 				self.startdttime=0
 			if self.waitrestart:
-				self.conn=closeconnClient(self)
-				self.conn=openconnClient(self)
+				restartconnClient(self)
 				self.waitrestart=0
 			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
 			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
-				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
-				self.logfilechanged=1
-				self.conn=closeconnClient(self)
-				self.conn=openconnClient(self)
-			# if no data for t3 seconds then send testfr packet.
-			if ((time() - self.t3timeidle) > t3) and self.conn:
-				# send testfr act packet
-				sendpacket=b'\x68\x04\x43\x00\x00\x00'
-				senddata(self,sendpacket)
-				self.t3timeidle=time()
+				message = 'No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n'
+				restartconnClient(self,message)
 			if not self.conn:
 				self.conn=openconnClient(self)
 			try:
@@ -831,15 +829,13 @@ class iec104threadClient (threading.Thread):
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
 				self.disconnectcause = 'Disconnection while trying to select socket.'
-				self.conn=closeconnClient(self)
-				self.conn=openconnClient(self)
+				restartconnClient(self)
 				# connection error event here, maybe reconnect
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
-					self.disconnectcause = 'Disconnecting while reading socket data.'
-					self.conn=closeconnClient(self)
-					self.conn=openconnClient(self)
+					self.disconnectcause = 'Disconnected while reading socket data.'
+					restartconnClient(self)
 		
 # define iec104 thread for mm2ss server
 class iec104thread (threading.Thread):
@@ -862,7 +858,6 @@ class iec104thread (threading.Thread):
 		self.dataactive=0
 		self.initialize=0
 		self.rcvtfperiodmin=1000000
-		self.insenddata=0
 		self.sentnorec=0
 		self.recnosend=0
 		self.acceptnetsys=[]
@@ -877,7 +872,6 @@ class iec104thread (threading.Thread):
 		self.csvindex=csvindex
 
 		# py will write this variable when connection disconnected.
-		self.disconnected=0
 		self.txlsb=0
 		self.txmsb=0
 		self.rxlsb=0
@@ -892,7 +886,9 @@ class iec104thread (threading.Thread):
 		# fifo buffer variables used between this mm2ss server and real client
 		self.rdpointer=-1
 		self.wrpointer=-1
-		self.databuffer=[0 for i in range(bufsize+1)]
+		self.databuffer=[[0] * 2 for i in range(bufsize+1)]
+		#[[0] * m for i in range(n)]		#  creates a list of n elements, where each element is a list of m zeros
+		#self.databuffer=[0 for i in range(bufsize+1)]
 		# fifo buffer variables used between this mm2ss server thread and mm2ss client thread
 		self.packet2client=[0 for i in range(bufsize+1)]	# fifo buffer where mm2ss server put packet to mm2ss client.
 		self.packet2client_rdp=-1							# fifo buffer read pointer used by mm2ss client.
@@ -934,7 +930,7 @@ class iec104thread (threading.Thread):
 			CreateToolTip(self.btn_apply,"Apply acction selected in combo box to this Server.")
 
 	def run(self):
-		global exitprogram,programstarted,t3,mainth
+		global exitprogram,programstarted,mainth
 		ready_to_read=[]
 		# wait until starting all threads.
 		while not programstarted:
@@ -967,12 +963,6 @@ class iec104thread (threading.Thread):
 				self.s=opensocket(self.PORT)
 				self.conn=openconn(self)
 				self.waitrestart=0
-			# if no data for t3 seconds then send testfr packet.
-			if ((time() - self.t3timeidle) > t3) and self.conn:
-				# send testfr act packet
-				sendpacket=b'\x68\x04\x43\x00\x00\x00'
-				senddata(self,sendpacket)
-				self.t3timeidle=time()
 			if not self.s and not self.conn:
 				self.s=opensocket(self.PORT)
 			if not self.conn and self.s:
@@ -981,7 +971,7 @@ class iec104thread (threading.Thread):
 				ready_to_read, self.ready_to_write, in_error = \
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
-				self.disconnectcause = 'Disconnecting while selecting socket.'
+				self.disconnectcause = 'Disconnected while selecting socket.'
 				self.conn=closeconn(self)
 				self.s=opensocket(self.PORT)
 				self.conn=openconn(self)
@@ -989,7 +979,7 @@ class iec104thread (threading.Thread):
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
-					self.disconnectcause = 'Disconnecting while reading socket data.'
+					self.disconnectcause = 'Disconnected while reading socket data.'
 					self.conn=closeconn(self)
 					self.s=opensocket(self.PORT)
 					self.conn=openconn(self)
@@ -1055,8 +1045,6 @@ def restartaction(self,ind):
 			self.filternet=filternet
 		# restart connection with new settings
 		self.waitrestart=1
-		#self.s=opensocket(self.PORT)
-		#self.conn=openconn(self)
 		self.logfhw.write(str(datetime.now()) + ' : Restarting as per user request.\n')
 		self.logfilechanged=1
 	if txtbx1thid == self:
@@ -1355,6 +1343,9 @@ except FileExistsError:
 #ntp_update_every_sec,900,,
 #rtuno,32,,
 #idletime,60,,
+#t1,15,,,,
+#t2,10,,,,
+#t3,20,,,,
 #w,8,,
 #k,12,,
 # id,sys name,portno,rtuno,hosts
@@ -1603,9 +1594,9 @@ if isfile(initfile):
 					tmpth1 = threading.Thread(target=readpacketthreadClient,args=(tmpth,), daemon=True)
 					th.append(tmpth1)
 					tmpth1.start()
-					tmpth1 = threading.Thread(target=readmm2ssserverthread,args=(tmpth,), daemon=True)
-					th.append(tmpth1)
-					tmpth1.start()
+					#tmpth1 = threading.Thread(target=readmm2ssserverthread,args=(tmpth,), daemon=True)
+					#th.append(tmpth1)
+					#tmpth1.start()
 					noofsys += 1
 			# Master entries - each row should start with integer, then sys name, portno, rtuno, master(Y/N) and IP/Network filter.
 			elif row[0].isdigit() and row[2].isdigit() and row[3].isdigit() and row[4] == "Y" and row[2] not in portnolist and int(row[2]) in range(1,65535) and int(row[3]) in range(1,65535):
@@ -1640,9 +1631,9 @@ if isfile(initfile):
 					tmpth1 = threading.Thread(target=readpacketthread,args=(tmpth,), daemon=True)
 					th.append(tmpth1)
 					tmpth1.start()
-					tmpth1 = threading.Thread(target=readmm2ssclientthread,args=(tmpth,), daemon=True)
-					th.append(tmpth1)
-					tmpth1.start()
+					#tmpth1 = threading.Thread(target=readmm2ssclientthread,args=(tmpth,), daemon=True)
+					#th.append(tmpth1)
+					#tmpth1.start()
 					noofsys += 1
 			if not nogui:
 				window.update()
