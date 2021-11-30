@@ -812,7 +812,10 @@ class iec104threadClient (threading.Thread):
 				break
 			# if not received startdt con after t1 timeout then disconnect
 			if self.conn and self.startdttime and ((time() - self.startdttime) > t1):
-				message = 'startdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n'
+				if self.dataactive:
+					message = 'stopdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n'
+				else:
+					message = 'startdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n'
 				restartconnClient(self,message)
 				self.startdttime=0
 			if self.waitrestart:
