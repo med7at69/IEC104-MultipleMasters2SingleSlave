@@ -389,10 +389,10 @@ def initiate(self):
 	self.initialize=1
 	self.logfilechanged=1
 	if self.order:		# Master entry?
-		if mainth[self.index][0].masterdataactive > 0:
-			mainth[self.index][0].masterdataactive -= 1
+		mainth[self.index][0].masterdataactive[self.order]=0
 	else:
-		self.masterdataactive = 0
+		self.masterdataactive.clear()
+		self.masterdataactive = [0 for i in range(len(mainth[self.index]))]
 	self.dataactive=0
 
 # read packet from real server to mm2ss client.
@@ -410,14 +410,14 @@ def readpacketClient(self):
 		self.t2timeidle=time()
 		sendpacket=b'\x68\x04\x01\x00' + (self.rxlsb*2).to_bytes(1,'little') + self.rxmsb.to_bytes(1,'little') 
 		senddata(self,sendpacket)
-	if not self.startdttime and not self.dataactive and self.masterdataactive:			# At least one master connected.
+	if not self.startdttime and not self.dataactive and sum(self.masterdataactive):			# At least one master connected.
 		# send startdt act
 		sendpacket=b'\x68\x04\x07\x00\x00\x00'
 		dt=senddata(self,sendpacket)
 		self.startdttime=time()
 		self.logfhw.write(dt + ' : startdt transmitted.\n')
 		self.logfilechanged=1
-	elif not self.startdttime and self.dataactive and not self.masterdataactive:		# No master connected.
+	elif not self.startdttime and self.dataactive and not sum(self.masterdataactive):		# No master connected.
 		# send stopdt act
 		sendpacket=b'\x68\x04\x13\x00\x00\x00'
 		dt=senddata(self,sendpacket)
@@ -554,7 +554,7 @@ def readpacket(self):
 				self.connectedatvalue=dt
 				self.updatestatusgui=1
 				self.dataactive=1
-				mainth[self.index][0].masterdataactive += 1
+				mainth[self.index][0].masterdataactive[self.order] = 1
 		elif  packet[4:4+2] == '43':		 	# testfr act packet
 			rcvtf=time()
 			rcvtfperiod=round(rcvtf - self.time1,1)
@@ -727,7 +727,7 @@ class iec104threadClient (threading.Thread):
 		self.rtunohex = self.rtunohex[2:2+2] + self.rtunohex[0:2]
 		self.rtuno = rtuno
 		self.dataactive=0
-		self.masterdataactive=0
+		self.masterdataactive=[]
 		self.initialize=0
 		self.rcvtfperiodmin=1000000
 		self.sentnorec=0
@@ -1626,6 +1626,8 @@ if isfile(initfile):
 						tmpth.filternet=row[5]
 					tmpth.kpackets=k
 					tmpth.tdisconnect=idletime
+					# append entry in the slave masterdataactive
+					mainth[indexgroup][0].masterdataactive.append(0)
 					# create GUI resources for this rtu - 8 gadgets
 					# label:ID (5 char) label:System(16 char) label:Online (Yes/No) label:Port label:RTU label:connected at(26 char) listbox:Action(30 char) button:Action
 					# added to the class construction
