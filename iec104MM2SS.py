@@ -273,11 +273,10 @@ def closemm2ssservers(self):
 		if a != self:
 			# close connection and socket
 			if a.conn:
-				if a.conn:
-					a.disconnectcause = 'Disconnecting becasue server restarting.'
-					a.conn = closeconn(a)
-				elif a.s:
-					a.s = closesocket(a.s)
+				a.disconnectcause = 'Disconnecting becasue server restarting.'
+				a.restartconn=1
+			elif a.s:
+				a.s = closesocket(a.s)
 
 # read data
 def readdata(self):
