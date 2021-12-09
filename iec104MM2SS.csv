@@ -7,7 +7,11 @@
 #,,,,,
 # uncomment nogui to start the program without the GUI interface.,,,,,
 #nogui,,,,,
+# uncomment buffsize to set packets buffer size (default is 1000 packets). Buffsize will not be accepted if < k constant.,,,,,
+buffsize,1000,,,,
 #,,,,,
+# uncomment logevent to to enable logging.,,,,,
+logevents,,,,,
 # starting by general settings in comma separated values.,,,,,
 # ,,,,,
 # NTP server settings,,,,,
@@ -46,10 +50,10 @@ k,12,,,,
 # id should be a number and should be matched for all master(s)/slave connected to each other in same group.,,,,,
 #,,,,,
 group id,sys name,port no,rtu no,master,hosts
-111,RTU-ABB,,32,N,127.0.0.1:2404;192.168.1.1:2405
-111,ABB-1,2406,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
-111,OSI-1,2407,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
-555,Dreez,,105,N,127.0.0.1:2405;192.168.1.1:2405
+111,RTU-ABB,,101,N,127.0.0.1:2410;127.0.0.1:2414
+111,ABB-1,2404,101,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
+111,OSI-1,2405,101,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
+555,Dreez,,105,N,127.0.0.1:2411;192.168.1.1:2405
 555,ABB-2,2408,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
 555,OSI-2,2409,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24
 !4,OSI-3,2410,32,Y,192.168.1.16;127.0.0.0/24;10.1.1.0/24

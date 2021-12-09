@@ -29,14 +29,14 @@
 from getopt import getopt
 from ipaddress import ip_address,ip_network
 import threading
-from os import remove,stat,mkdir,system,name
+from os import remove,stat,mkdir,system,name,devnull
 from datetime import datetime
 from socket import socket,AF_INET,SOCK_STREAM,SOL_SOCKET,SO_REUSEADDR,SHUT_RDWR,error,timeout,SOCK_DGRAM,gaierror,setdefaulttimeout
 from binascii import hexlify
 from signal import signal,SIGTERM
 from struct import unpack,pack
 from select import select
-from sys import argv,byteorder,exit
+from sys import argv,byteorder,exit,stdout
 from time import time,sleep
 from os.path import isfile,getsize
 from csv import reader
@@ -88,7 +88,7 @@ k=12
 
 exitprogram=0
 
-bufsize=100
+bufsize=1000
 mainth=[[]]
 th=[]
 indexlist=[]
@@ -103,6 +103,7 @@ noofsys=0
 programstarted=0
 
 nogui=0
+logevents=0
 runasservice=0
 logupdateperiod=10		# in case no GUI mode then update log files every 10 seconds.
 
@@ -159,9 +160,10 @@ def opensocket(port):
 	s.listen(1)
 	return s
 		
-def closesocket(s):
+def closesocket(self):
 	try:
-		s.close()
+		self.s.close()
+		self.s = 0
 	except (error, OSError, ValueError, AttributeError):
 		pass
 	return 0
@@ -205,7 +207,7 @@ def openconn(self):
 			self.conn = 0
 		if self.conn:
 			self.conn.setblocking(False)
-			self.s=closesocket(self.s)
+			self.s=closesocket(self)
 			acceptedaddr=0
 			for i in self.acceptnetsys:
 				try:
@@ -231,7 +233,7 @@ def closeconnClient(self,setdisconnect=1):
 			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
 			self.conn.close()
 			self.conn = 0
-		except (error, OSError, ValueError):
+		except (error, OSError, ValueError, AttributeError):
 			pass
 		incseqno(self,'I')
 		if setdisconnect:
@@ -254,7 +256,7 @@ def closeconn(self,setdisconnect=1):
 			self.conn.shutdown(SHUT_RDWR)    # 0 = done receiving, 1 = done sending, 2 = both
 			self.conn.close()
 			self.conn = 0
-		except (error, OSError, ValueError):
+		except (error, OSError, ValueError, AttributeError):
 			pass
 		incseqno(self,'I')
 		if setdisconnect:
@@ -275,8 +277,8 @@ def closemm2ssservers(self):
 			if a.conn:
 				a.disconnectcause = 'Disconnecting becasue server restarting.'
 				a.restartconn=1
-			elif a.s:
-				a.s = closesocket(a.s)
+			#elif a.s:
+			#	a.s = closesocket(a)
 
 # read data
 def readdata(self):
@@ -374,22 +376,26 @@ def incseqno(self,txrx):
 
 def initiate(self):
 	global mainth
+	self.sentnorec=0
+	self.t1timeout=0
+	self.recnosend=0
+	#self.t3timeidle=time()
+	#self.t2timeidle=time()
+	timeidle=time()
+	if self.order:		# Master entry?
+		mainth[self.index][0].masterdataactive[self.order-1]=0
+	else:
+		self.startdttime=0
+	self.dataactive=0
 	self.statusvalue="NO"
 	self.statuscolor='red'
 	self.connectedatvalue=' '
 	self.updatestatusgui=1
-	self.sentnorec=0
-	self.t1timeout=0
-	self.recnosend=0
 	self.rcvtfperiodmin=1000000
 	self.time1=0
-	self.startdttime=0
 	# set initialize flag
 	self.initialize=1
 	self.logfilechanged=1
-	if self.order:		# Master entry?
-		mainth[self.index][0].masterdataactive[self.order-1]=0
-	self.dataactive=0
 
 # read packet from real server to mm2ss client.
 def readpacketClient(self):
@@ -661,7 +667,7 @@ def gettime_ntp(addr='time.nist.gov'):
             epoch_time = unpack( '!12I', data )[10]
             epoch_time -= TIME1970
             return epoch_time
-    except (timeout, gaierror):
+    except (timeout, gaierror, LookupError):
         return None
 
 def ntpthread():
@@ -796,6 +802,7 @@ class iec104threadClient (threading.Thread):
 	def run(self):
 		global exitprogram,programstarted,t1
 		ready_to_read=[]
+		message=''
 		# wait until starting all threads.
 		while not programstarted:
 			pass
@@ -812,22 +819,23 @@ class iec104threadClient (threading.Thread):
 				self.disconnectcause = 'Disconnecting becasue t1 expired before receive I-Frame ack..'
 				self.sentnorec = 0
 				self.t1timeout = 0
-				restartconnClient(self,message)
+				self.restartconn=1
 			# if not received startdt con after t1 timeout then disconnect
 			if self.conn and self.startdttime and ((time() - self.startdttime) > t1):
 				if self.dataactive:
 					message = 'stopdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n'
 				else:
 					message = 'startdt con not received for ' + str(t1) + ' seconds .. disconnecting ..\n'
-				restartconnClient(self,message)
+				self.restartconn=1
 				self.startdttime=0
 			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
 			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
 				message = 'No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n'
-				restartconnClient(self,message)
+				self.restartconn=1
 			if self.restartconn:
 				self.restartconn=0
-				restartconnClient(self)
+				restartconnClient(self,message)
+				message=''
 			if not self.conn:
 				self.conn=openconnClient(self)
 			try:
@@ -835,13 +843,13 @@ class iec104threadClient (threading.Thread):
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
 				self.disconnectcause = 'Disconnection while trying to select socket.'
-				restartconnClient(self)
+				self.restartconn=1
 				# connection error event here, maybe reconnect
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
 					self.disconnectcause = 'Disconnected while reading socket data.'
-					restartconnClient(self)
+					self.restartconn=1
 		
 # define iec104 thread for mm2ss server
 class iec104thread (threading.Thread):
@@ -873,7 +881,6 @@ class iec104thread (threading.Thread):
 		self.tdisconnect=idletime
 		self.disconnectcause=''
 		self.restartconn=0
-		self.startdttime=0
 		self.index=0
 		self.csvindex=csvindex
 
@@ -948,7 +955,7 @@ class iec104thread (threading.Thread):
 					self.disconnectcause = 'Disconnecting to exit program.'
 					self.conn=closeconn(self)
 				elif self.s:
-					self.s=closesocket(self.s)
+					self.s=closesocket(self)
 				break
 			# open socket and connection
 			if not self.s and not self.conn and mainth[self.index][0].conn:
@@ -961,42 +968,36 @@ class iec104thread (threading.Thread):
 				self.disconnectcause = 'Disconnecting becasue t1 expired before receive I-Frame ack..'
 				self.sentnorec = 0
 				self.t1timeout = 0
-				if self.conn:
-					self.conn = closeconn(self)
-				elif self.s:
-					self.s = closesocket(self.s)
+				self.restartconn=1
 			# timeidle > tdisconnect. if not receiving data during timeidle then disconnect.
 			if ((time() - self.timeidle) > self.tdisconnect) and self.conn:
 				self.logfhw.write(str(datetime.now()) + ' : No received data for ' + str(self.tdisconnect) + ' seconds .. disconnecting ..\n')
 				self.logfilechanged=1
-				if self.conn:
-					self.conn = closeconn(self)
-				elif self.s:
-					self.s = closesocket(self.s)
+				self.restartconn=1
 			if self.restartconn:
 				self.restartconn=0
 				if self.conn:
 					self.conn = closeconn(self)
-				elif self.s:
-					self.s = closesocket(self.s)
 			try:
 				ready_to_read, self.ready_to_write, in_error = \
 					select([self.conn,], [self.conn,], [], 1)
 			except (OSError, WindowsError, ValueError):
 				if self.conn:
 					self.disconnectcause = 'Disconnected while selecting socket.'
-					self.conn = closeconn(self)
-				elif self.s:
-					self.s = closesocket(self.s)
+					self.restartconn=1
+					#self.conn = closeconn(self)
+				#elif self.s:
+				#	self.s = closesocket(self)
 				# connection error event here, maybe reconnect
 			if len(ready_to_read) > 0:
 				recv=readdata(self)
 				if not recv:
 					if self.conn:
 						self.disconnectcause = 'Disconnected while reading socket data.'
-						self.conn = closeconn(self)
-					elif self.s:
-						self.s = closesocket(self.s)
+						self.restartconn=1
+						#self.conn = closeconn(self)
+					#elif self.s:
+					#	self.s = closesocket(self)
 					
 def restartaction(self,ind):
 	global txtbx1thid,txtbx2thid,updatetoframe1,updatetoframe2,portnolist
@@ -1065,7 +1066,7 @@ def restartaction(self,ind):
 			if self.conn:
 				self.restartconn=1
 			elif self.s:
-				self.s = closesocket(self.s)
+				self.s = closesocket(self)
 		self.logfhw.write(str(datetime.now()) + ' : Restarting as per user request.\n')
 		self.logfilechanged=1
 	if txtbx1thid == self:
@@ -1074,13 +1075,14 @@ def restartaction(self,ind):
 		updatetoframe2=1
 
 def applyaction(self):
-	global updatetoframe1,updatetoframe2,txtbx1thid,txtbx2thid
+	global updatetoframe1,updatetoframe2,txtbx1thid,txtbx2thid,logevents
 	cursel=self.cbx_action.current()
 	if cursel == 0:
 		# open log file
 		if self.logfilechanged:
 			self.logfhw.flush()
-		system('start notepad ' + self.logfilename)
+		if logevents:
+			system('start notepad ' + self.logfilename)
 	elif cursel == 1:
 		# Show log in textbox 1
 		txtbx1thid=self
@@ -1385,6 +1387,8 @@ if isfile(initfile):
 				timeupdateevery=int(row[1])
 			elif row[0] == 'nogui':
 				nogui = 1
+			elif row[0] == 'logevents':
+				logevents = 1
 			elif row[0] == 'ntp_server' and row[1]:
 				ntpserver.append(row[1])
 			elif row[0] == 'idletime' and row[1].isdigit() and int(row[1]):
@@ -1401,6 +1405,10 @@ if isfile(initfile):
 				k=int(row[1])
 			elif row[0] == 'buffsize' and row[1].isdigit() and int(row[1]) >= k:
 				bufsize=int(row[1])
+
+if not logevents:
+	nullfilew = open(devnull, 'w')
+	nullfiler = open(devnull, 'r')
 
 if not nogui:
 	import tkinter as tk
@@ -1593,20 +1601,25 @@ if isfile(initfile):
 					mainth.append([])
 					# reserve first place for the virtual master
 					mainth[indexgroup].append(0)
-					# generate unique log file name for mm2ss client
-					dt=datetime.now()
-					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
-					logfilename=row[1] + '-' + currentdate + '-' + row[2]
 					# create thread class for mm2ss servers
-					tmpth = iec104threadClient(noofsys+1, 'S/' + row[1][0:0+14],int(row[3][0:0+5]),srvipport,srvport,srvip,row[0],logfilename)
+					tmpth = iec104threadClient(noofsys+1, 'S/' + row[1][0:0+14],int(row[3][0:0+5]),srvipport,srvport,srvip,row[0],'')
 					mainth[indexgroup][0]=tmpth
 					tmpth.daemon = True
 					tmpth.index=indexgroup
 					tmpth.order=len(mainth[indexgroup]) - 1
-					# identify log files
-					tmpth.logfhw=open(dir + logfilename + '.txt',"w")
-					tmpth.logfhw.write(tmpth.name + ' log file .. RTU: ' + str(tmpth.rtuno) + '\n')
-					tmpth.logfhr=open(dir + logfilename + '.txt',"r")
+					# generate unique log file name for mm2ss client
+					if logevents:
+						dt=datetime.now()
+						currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
+						logfilename=row[1] + '-' + currentdate + '-' + row[2]
+						tmpth.logfilename = dir + logfilename + '.txt'
+						# identify log files
+						tmpth.logfhw=open(dir + logfilename + '.txt',"w")
+						tmpth.logfhw.write(tmpth.name + ' log file .. RTU: ' + str(tmpth.rtuno) + '\n')
+						tmpth.logfhr=open(dir + logfilename + '.txt',"r")
+					else:
+						tmpth.logfhw=nullfilew
+						tmpth.logfhr=nullfiler
 					tmpth.kpackets=k
 					tmpth.tdisconnect=idletime
 					# create GUI resources for mm2ss client - 8 gadgets
@@ -1627,19 +1640,24 @@ if isfile(initfile):
 					portnolist.append(row[2])
 					# get correct indexgroup
 					indexgroup = csvindexlist.index(row[0])
-					# generate unique log file names
-					dt=datetime.now()
-					currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
-					logfilename=row[1] + '-' + currentdate + '-' + row[2]
-					tmpth = iec104thread(noofsys+1, 'M/' + row[1][0:0+14],int(row[2][0:0+5]),int(row[3][0:0+5]),row[0],logfilename)
+					tmpth = iec104thread(noofsys+1, 'M/' + row[1][0:0+14],int(row[2][0:0+5]),int(row[3][0:0+5]),row[0],'')
 					mainth[indexgroup].append(tmpth)
 					tmpth.daemon = True
 					tmpth.index=indexgroup
 					tmpth.order=len(mainth[indexgroup]) - 1
-					# identify log files
-					tmpth.logfhw=open(dir + logfilename + '.txt',"w")
-					tmpth.logfhw.write(tmpth.name + ' log file .. RTU: ' + str(tmpth.rtuno) + ', listen port: ' + row[2] + '\n')
-					tmpth.logfhr=open(dir + logfilename + '.txt',"r")
+					if logevents:
+						# generate unique log file names
+						dt=datetime.now()
+						currentdate=dt.strftime("%b%d%Y-%H-%M-%S-%f")
+						logfilename=row[1] + '-' + currentdate + '-' + row[2]
+						tmpth.logfilename = dir + logfilename + '.txt'
+						# identify log files
+						tmpth.logfhw=open(dir + logfilename + '.txt',"w")
+						tmpth.logfhw.write(tmpth.name + ' log file .. RTU: ' + str(tmpth.rtuno) + ', listen port: ' + row[2] + '\n')
+						tmpth.logfhr=open(dir + logfilename + '.txt',"r")
+					else:
+						tmpth.logfhw=nullfilew
+						tmpth.logfhr=nullfiler
 					# get accepted hosts
 					if row[5]:
 						tmpth.acceptnetsys=row[5].split(';')
@@ -1757,7 +1775,7 @@ while True:
 				txtbx1thid.logfilechanged=0
 				txtbx1thid.logfhw.flush()
 			textsize=len(text_box1.get('1.0',tk.END)) + int(text_box1.index('end').split('.')[0]) - 3
-			if getsize(txtbx1thid.logfilename) != textsize:
+			if logevents and getsize(txtbx1thid.logfilename) != textsize:
 				copytoframe1(txtbx1thid,fileonly=1)
 
 			# print frame2 log file
@@ -1768,7 +1786,7 @@ while True:
 				txtbx2thid.logfilechanged=0
 				txtbx2thid.logfhw.flush()
 			textsize=len(text_box2.get('1.0',tk.END)) + int(text_box2.index('end').split('.')[0]) - 3
-			if getsize(txtbx2thid.logfilename) != textsize:
+			if logevents and getsize(txtbx2thid.logfilename) != textsize:
 				copytoframe2(txtbx2thid,fileonly=1)
 			
 	except KeyboardInterrupt:
