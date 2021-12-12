@@ -298,7 +298,8 @@ def readdata(self):
 						data = hexlify(self.conn.recv(packetlen))
 						self.databuffer[self.wrpointer + 1] = [('68' + "{:02x}".format(packetlen) + data.decode()), str(dt)]
 						# if I-Format or S-Format packets?
-						i = int.from_bytes(data[0:0+1], byteorder='little')
+						#i = int.from_bytes(data[0:0+1], byteorder='little')
+						i = int(self.databuffer[self.wrpointer + 1][0][4:4+2],16)
 						if (i & 1) == 0 or ((i & 1) == 1 and (i & 2) == 0):
 							self.sentnorec=0
 							self.t1timeout=0
