@@ -43,7 +43,7 @@ This program will connect multiple masters (SCADA master stations) to a single s
 
 ` `Any number of masters connected to a slave is forming a group. You can create any number of groups and the program will establish the communication among each group members independent on the other groups. Each master in each group can receive IO status and send commands to the slave RTU independent on the other masters.
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.001.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.001.png)
 
 Why may anyone need the IEC104MM2SS program?
 
@@ -250,11 +250,11 @@ Trying to make the graphical user interface as simple as possible:
 
 1. In each master/slave entry you can select to view the log file or to edit the entry parameters and view its log file in the “data edit” tab.
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.002.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.002.png)
 
 1. Configuration of all RTUs/Systems are initially read from the initial file (default: iec104mm2ss.csv). However, you can select any group entry and display it in the “data edit tab” then modify some parameters then restart the master/slave connection with the new parameters. Editing and changes of any entry will not be saved in the initial file. Please refer to below screenshot (entries in light yellow color could be changed and it will take effect after restarting the connection).
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.003.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.003.png)
 
 1. Floating tooltips is displayed whenever possible to explain the GUI part.
 
@@ -306,26 +306,26 @@ Local time not updated although NTP servers configured, and it is tested normall
 - Program will try the NTP servers one by one then will sleep for the specified period (ntp\_update\_every\_sec = 900 seconds by default) before trying again. So, maybe software couldn’t reach to the servers at the first try so please wait until the software try next time.
 - Please notice the local time update status as indicated in the screenshots below:
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.004.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.004.png)
 
 Local time updated successfully.
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.005.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.005.png)
 
 No admin privilege so program cannot update the local time.
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.006.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.006.png)
 
 Program is trying but cannot connect to the NTP servers so please check the network connection and the availability of the configured servers.
 
 
 # Appendix A - Sample initial file
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.007.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.007.png)
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.008.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.008.png)
 
-![](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.009.png)
+![](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.009.png)
 
 iec104MM2SS-1port-v1.0 ini file,,,,,,,,,,,,,,,
 
@@ -432,7 +432,7 @@ id,sys name,port no,rtu no,max conn,idletime,t1,t2,t3,w,k,buffsize,logevents,sam
 
 ![Graphical user interface, text, application
 
-Description automatically generated](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.009.png)
+Description automatically generated](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.009.png)
 
 2 groups.
 
@@ -441,7 +441,7 @@ Description automatically generated](Aspose.Words.663244e5-f223-40f8-ac29-206335
 
 ![Graphical user interface, text, application
 
-Description automatically generated](Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.010.png)
+Description automatically generated](images/Aspose.Words.663244e5-f223-40f8-ac29-2063354725bd.010.png)
 
 
 # Appendix C – Windows binary files
