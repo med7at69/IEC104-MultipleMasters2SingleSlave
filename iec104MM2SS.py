@@ -204,9 +204,10 @@ def openconn(self):					# self thread is for slave.
 			conn, addr = self.s.accept()
 		except (error, OSError, ValueError):
 			conn = 0
+			self.s=closesocket(self)
+			self.s = opensocket(self.PORT)
 		if conn:
 			conn.setblocking(False)
-			#self.s=closesocket(self)
 			acceptedaddr=0
 			for i in self.acceptnetsys:
 				try:
